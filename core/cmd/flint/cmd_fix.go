@@ -99,7 +99,8 @@ func fixError(id int64, cfg *config.Config, db *store.DB) error {
 
 	// Advisory mode: no file path — just explain the fix
 	if e.FilePath == "" {
-		fmt.Println("No file associated — explaining the fix:\n")
+		fmt.Println("No file associated — explaining the fix:")
+		fmt.Println()
 		_, err = client.Stream(context.Background(),
 			"You are a senior developer. Explain how to fix the following error in 2–3 concise sentences. No preamble.",
 			[]ai.Message{{Role: "user", Content: e.Message}},
