@@ -234,6 +234,12 @@ type Error struct {
 	Timestamp  time.Time
 }
 
+// ErrorRow is an Error with its database ID included.
+type ErrorRow struct {
+	ID int64
+	Error
+}
+
 func (d *DB) InsertError(e Error) error {
 	_, err := d.sql.Exec(`
 		INSERT INTO errors (source, message, file_path, line_number, workspace, timestamp)
@@ -244,6 +250,98 @@ func (d *DB) InsertError(e Error) error {
 		e.Timestamp.UTC().Format(time.RFC3339),
 	)
 	return err
+}
+
+func (d *DB) GetError(id int64) (*Error, error) {
+	var e Error
+	var fp, ws, ts sql.NullString
+	var ln sql.NullInt64
+	err := d.sql.QueryRow(`
+		SELECT source, message, file_path, line_number, workspace, timestamp
+		FROM errors WHERE id = ?`, id,
+	).Scan(&e.Source, &e.Message, &fp, &ln, &ws, &ts)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("error #%d not found", id)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if fp.Valid {
+		e.FilePath = fp.String
+	}
+	if ln.Valid {
+		e.LineNumber = int(ln.Int64)
+	}
+	if ws.Valid {
+		e.Workspace = ws.String
+	}
+	if ts.Valid {
+		e.Timestamp, _ = time.Parse(time.RFC3339, ts.String)
+	}
+	return &e, nil
+}
+
+func (d *DB) RecentErrors(limit int) ([]ErrorRow, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, source, message, file_path, line_number, timestamp
+		FROM errors ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ErrorRow
+	for rows.Next() {
+		var r ErrorRow
+		var fp, ts sql.NullString
+		var ln sql.NullInt64
+		if err := rows.Scan(&r.ID, &r.Source, &r.Message, &fp, &ln, &ts); err != nil {
+			return nil, err
+		}
+		if fp.Valid {
+			r.FilePath = fp.String
+		}
+		if ln.Valid {
+			r.LineNumber = int(ln.Int64)
+		}
+		if ts.Valid {
+			r.Timestamp, _ = time.Parse(time.RFC3339, ts.String)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ---------------------------------------------------------------------------
+// Baselines
+// ---------------------------------------------------------------------------
+
+func (d *DB) GetBaseline(key string) (string, error) {
+	var value string
+	err := d.sql.QueryRow(`SELECT value FROM baselines WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+func (d *DB) SetBaseline(key, value string) error {
+	_, err := d.sql.Exec(`
+		INSERT INTO baselines (key, value, updated_at) VALUES (?,?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+		key, value, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Observations (queries)
+// ---------------------------------------------------------------------------
+
+func (d *DB) CountObservations() (int, error) {
+	var n int
+	err := d.sql.QueryRow(`SELECT COUNT(*) FROM observations`).Scan(&n)
+	return n, err
 }
 
 // ---------------------------------------------------------------------------

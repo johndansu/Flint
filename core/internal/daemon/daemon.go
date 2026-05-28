@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,8 +64,8 @@ func New(cfg *config.Config, db *store.DB, socketPath, sharedDir, workspaceRoot 
 		log.Printf("footguns: %v (observations will use AI-only path)", err)
 	}
 
-	// Classifier with default baseline (replaced by real baseline after flint scan)
-	d.classifier = NewClassifier(nil)
+	// Classifier — load persisted behavior baseline if available
+	d.classifier = NewClassifier(loadBehaviorBaseline(db))
 	d.filesInBurst = make(map[string]bool)
 
 	// Wire nudge engine → observation pipeline
@@ -218,6 +219,9 @@ func (d *Daemon) updateSignals(event FileEvent) {
 		Since:       since,
 	})
 
+	// Blend this cycle's measurements into the persisted behavior baseline
+	d.updateBehaviorBaseline(sig.WriteIntervalMs, sig.SavesPerMinute, sig.BurstSize)
+
 	// Reset burst counter each classification cycle
 	d.burstLines = 0
 	d.filesInBurst = make(map[string]bool)
@@ -263,6 +267,58 @@ func (d *Daemon) handleMessage(clientID string, env ipc.Envelope) {
 			})
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Baseline helpers
+// ---------------------------------------------------------------------------
+
+// loadBehaviorBaseline reads persisted behavior averages from the store.
+// Falls back to conservative hardcoded defaults when no data exists yet.
+func loadBehaviorBaseline(db *store.DB) *Baseline {
+	b := &Baseline{
+		AvgWriteIntervalMs: 800,
+		AvgBurstSize:       3,
+		AvgSavesPerMinute:  2,
+	}
+	if v, _ := db.GetBaseline("behavior.avg_write_interval_ms"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			b.AvgWriteIntervalMs = f
+		}
+	}
+	if v, _ := db.GetBaseline("behavior.avg_burst_size"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			b.AvgBurstSize = f
+		}
+	}
+	if v, _ := db.GetBaseline("behavior.avg_saves_per_minute"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			b.AvgSavesPerMinute = f
+		}
+	}
+	if v, _ := db.GetBaseline("behavior.session_count"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			b.SessionCount = n
+		}
+	}
+	return b
+}
+
+// updateBehaviorBaseline applies an exponential moving average (α=0.1) to
+// blend the current cycle's measurements into the persisted baseline.
+func (d *Daemon) updateBehaviorBaseline(writeIntervalMs int64, savesPerMin float64, burstSize int) {
+	const alpha = 0.1
+	b := d.classifier.baseline
+
+	b.AvgWriteIntervalMs = alpha*float64(writeIntervalMs) + (1-alpha)*b.AvgWriteIntervalMs
+	b.AvgSavesPerMinute  = alpha*savesPerMin + (1-alpha)*b.AvgSavesPerMinute
+	b.AvgBurstSize       = alpha*float64(burstSize) + (1-alpha)*b.AvgBurstSize
+	b.SessionCount++
+
+	_ = d.db.SetBaseline("behavior.avg_write_interval_ms", strconv.FormatFloat(b.AvgWriteIntervalMs, 'f', 2, 64))
+	_ = d.db.SetBaseline("behavior.avg_saves_per_minute",  strconv.FormatFloat(b.AvgSavesPerMinute, 'f', 2, 64))
+	_ = d.db.SetBaseline("behavior.avg_burst_size",        strconv.FormatFloat(b.AvgBurstSize, 'f', 2, 64))
+	_ = d.db.SetBaseline("behavior.session_count",         strconv.Itoa(b.SessionCount))
 }
 
 // ---------------------------------------------------------------------------
