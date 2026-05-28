@@ -31,11 +31,14 @@ type Daemon struct {
 	pipeline   *Pipeline
 	classifier *Classifier
 
+	workspaceRoot string
+
 	// Rolling signal accumulators for the classifier
-	sigMu       sync.Mutex
-	recentSaves []time.Time // timestamps of recent file saves
-	burstLines  int         // lines changed in the current burst
-	filesInBurst map[string]bool
+	sigMu           sync.Mutex
+	recentSaves     []time.Time     // timestamps of recent file saves
+	burstLines      int             // lines changed in the current burst
+	filesInBurst    map[string]bool
+	hasAgentComment bool            // any file in the burst had an agent fingerprint
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -49,7 +52,7 @@ func New(cfg *config.Config, db *store.DB, socketPath, sharedDir, workspaceRoot 
 		return nil, fmt.Errorf("daemon: error log: %w", err)
 	}
 
-	d := &Daemon{cfg: cfg, db: db, el: el}
+	d := &Daemon{cfg: cfg, db: db, el: el, workspaceRoot: workspaceRoot}
 	d.server = ipc.NewServer(socketPath, d.handleMessage)
 
 	// Build observation pipeline — AI client is nil if no key (footgun-only mode)
@@ -161,6 +164,15 @@ func (d *Daemon) onFileEvent(ctx context.Context, event FileEvent) {
 		}
 	}
 
+	// Check for agent-generated content (file is already in page cache after save)
+	if content, err := os.ReadFile(event.Path); err == nil {
+		if HasAgentFingerprint(string(content)) {
+			d.sigMu.Lock()
+			d.hasAgentComment = true
+			d.sigMu.Unlock()
+		}
+	}
+
 	// Update rolling signal accumulators for the classifier
 	d.updateSignals(event)
 
@@ -206,6 +218,9 @@ func (d *Daemon) updateSignals(event FileEvent) {
 		FilesChanged:    len(d.filesInBurst),
 		HasLargeChunk:   d.burstLines > 50,
 		BurstSize:       d.burstLines,
+		HasAgentComment: d.hasAgentComment,
+		AgentToolActive: detectAgentToolActive(),
+		MultipleCursors: detectMultipleAuthors(d.workspaceRoot),
 	}
 
 	sessionType, _ := d.classifier.Classify(sig)
@@ -222,9 +237,10 @@ func (d *Daemon) updateSignals(event FileEvent) {
 	// Blend this cycle's measurements into the persisted behavior baseline
 	d.updateBehaviorBaseline(sig.WriteIntervalMs, sig.SavesPerMinute, sig.BurstSize)
 
-	// Reset burst counter each classification cycle
+	// Reset burst accumulators each classification cycle
 	d.burstLines = 0
 	d.filesInBurst = make(map[string]bool)
+	d.hasAgentComment = false
 }
 
 func (d *Daemon) fireTripwire(tw store.Tripwire, filePath string) {

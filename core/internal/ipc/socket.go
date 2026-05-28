@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // SocketPath returns the daemon socket path for a given workspace directory.
@@ -26,7 +25,7 @@ func removeSocket(path string) error {
 }
 
 // IsSupported reports whether Unix domain sockets are available on this platform.
-// On Windows they require Windows 10 1803+ but work in WSL2 always.
+// Go's net package supports AF_UNIX on Windows 10 build 17063+ and all Unix systems.
 func IsSupported() bool {
-	return runtime.GOOS != "windows"
+	return true
 }
