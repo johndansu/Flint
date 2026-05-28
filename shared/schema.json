@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "version": "1.0",
+  "description": "Flint IPC message contract. All messages between Go daemon and TypeScript extension are defined here. Generated types on both sides must never be edited manually.",
+  "messages": {
+    "observation": {
+      "description": "A daemon observation broadcast to all connected clients",
+      "type": "object",
+      "properties": {
+        "id":          { "type": "string" },
+        "kind":        { "enum": ["technical", "human", "win", "question", "taste"] },
+        "category":    { "type": "string" },
+        "confidence":  { "type": "number", "minimum": 0, "maximum": 1 },
+        "text":        { "type": "string" },
+        "agentPrompt": { "type": "string" },
+        "explainWhy":  { "type": "string", "description": "One-line why Flint noticed this — included when confidence < 0.82" },
+        "timestamp":   { "type": "string", "format": "date-time" },
+        "filePath":    { "type": "string" },
+        "lineNumber":  { "type": "integer" },
+        "sessionType": { "enum": ["human", "agentAssisted", "vibeCoding", "pairProgramming", "mixed"] },
+        "footgunId":   { "type": "string", "description": "Set when observation matched a footgun pattern" }
+      },
+      "required": ["id", "kind", "category", "confidence", "text", "timestamp"]
+    },
+
+    "dismissal": {
+      "description": "Sent from extension to daemon when developer taps the dismiss button",
+      "type": "object",
+      "properties": {
+        "observationId": { "type": "string" },
+        "timestamp":     { "type": "string", "format": "date-time" }
+      },
+      "required": ["observationId", "timestamp"]
+    },
+
+    "sessionState": {
+      "description": "Broadcast when daemon detects a session state or type transition",
+      "type": "object",
+      "properties": {
+        "state":       { "enum": ["early", "exploration", "deepWork", "debuggingSpiral", "finishing"] },
+        "sessionType": { "enum": ["human", "agentAssisted", "vibeCoding", "pairProgramming", "mixed"] },
+        "since":       { "type": "string", "format": "date-time" }
+      },
+      "required": ["state", "sessionType", "since"]
+    },
+
+    "daemonStatus": {
+      "description": "Full daemon status — returned on status request and broadcast on change",
+      "type": "object",
+      "properties": {
+        "awareness":        { "enum": ["spark", "flame", "forge"] },
+        "humanLayer":       { "type": "boolean" },
+        "project":          { "type": "string" },
+        "observationCount": { "type": "integer" },
+        "sessionState":     { "type": "string" },
+        "sessionType":      { "type": "string" },
+        "lastObservation":  { "type": "string", "format": "date-time" }
+      },
+      "required": ["awareness", "humanLayer", "observationCount"]
+    },
+
+    "subscribe": {
+      "description": "Sent from client to daemon on connect to begin receiving broadcasts",
+      "type": "object",
+      "properties": {
+        "clientType": { "enum": ["extension", "cli"] }
+      },
+      "required": ["clientType"]
+    },
+
+    "ack": {
+      "description": "Acknowledgement from daemon after processing a dismissal",
+      "type": "object",
+      "properties": {
+        "observationId": { "type": "string" },
+        "action":        { "enum": ["calibrated", "dismissed"] }
+      },
+      "required": ["observationId", "action"]
+    },
+
+    "autoFix": {
+      "description": "Broadcast when daemon auto-fixes something and stages the change",
+      "type": "object",
+      "properties": {
+        "category":     { "type": "string" },
+        "description":  { "type": "string" },
+        "filesChanged": { "type": "array", "items": { "type": "string" } },
+        "timestamp":    { "type": "string", "format": "date-time" }
+      },
+      "required": ["category", "description", "filesChanged", "timestamp"]
+    },
+
+    "tripwireFired": {
+      "description": "Broadcast when a flint watch pattern is touched — bypasses all time gates",
+      "type": "object",
+      "properties": {
+        "tripwireId": { "type": "string" },
+        "pattern":    { "type": "string" },
+        "filePath":   { "type": "string" },
+        "timestamp":  { "type": "string", "format": "date-time" }
+      },
+      "required": ["tripwireId", "pattern", "timestamp"]
+    }
+  }
+}

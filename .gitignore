@@ -1,0 +1,32 @@
+# Go
+dist/
+*.exe
+*.test
+*.out
+
+# Node / npm
+node_modules/
+npm-debug.log*
+
+# VS Code extension build output
+extension/out/
+extension/*.vsix
+
+# Flint user data (never commit personal data)
+.flint/
+*.flintrc.local
+
+# Editor
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.*

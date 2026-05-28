@@ -1,0 +1,1070 @@
+{
+  "version": "1.1",
+  "last_updated": "2026-05-28",
+  "contributors": [],
+  "total": 72,
+  "schema_notes": {
+    "severity": "critical > high > medium > low",
+    "fix_confidence": "auto=mechanical fix always same, suggest=AI generates fix, human=judgment required",
+    "detect_pattern.type": "regex | ast_pattern | text_search | heuristic",
+    "context_required": "optional — extra context daemon checks before firing"
+  },
+  "footguns": [
+
+    {
+      "id": "react-stale-closure",
+      "role": "webdev",
+      "framework": "react",
+      "framework_version": ">=16.8",
+      "category": "performance",
+      "severity": "high",
+      "title": "Stale closure in useEffect",
+      "observation": "This useEffect reads a variable but it's not in the dependency array — it'll silently use the stale value from the first render, not the current one.",
+      "agent_prompt": "Fix the useEffect dependency array in {file} at line {line}. Add all variables referenced inside the effect. Don't change the effect logic.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "ast_pattern",
+        "description": "useEffect with non-empty body referencing identifiers not in dependency array",
+        "language": "javascript"
+      },
+      "learn_more": "https://react.dev/learn/synchronizing-with-effects#dependencies"
+    },
+    {
+      "id": "react-object-in-deps",
+      "role": "webdev",
+      "framework": "react",
+      "framework_version": ">=16.8",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Object or array literal in dependency array causes infinite loop",
+      "observation": "There's an object or array literal in this dependency array. It creates a new reference on every render — this effect will run on every render, effectively an infinite loop.",
+      "agent_prompt": "In {file} at line {line}, move the object/array outside the component or wrap it in useMemo. Don't change the effect logic.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "use(Effect|Memo|Callback)\\([^,]+,\\s*\\[[^\\]]*\\{",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "react-index-as-key",
+      "role": "webdev",
+      "framework": "react",
+      "framework_version": ">=0.1",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Array index as React key",
+      "observation": "Using array index as key works until the list reorders or filters — then React reconciles the wrong elements, causing subtle state bugs and missed animations.",
+      "agent_prompt": "In {file} at line {line}, replace the index key with a stable unique identifier from the data. Don't change anything else.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "key=\\{(\\w+)?index\\}|key=\\{i\\}",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "react-state-mutation",
+      "role": "webdev",
+      "framework": "react",
+      "framework_version": ">=0.1",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Direct state mutation",
+      "observation": "This mutates state directly — React won't detect the change and the component won't re-render. State must be replaced, not mutated.",
+      "agent_prompt": "In {file} at line {line}, replace the direct mutation with a new object/array using spread or Array methods. Pass the new value to the setter.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "state variable from useState assigned to or mutated directly without setter",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "react-missing-cleanup",
+      "role": "webdev",
+      "framework": "react",
+      "framework_version": ">=16.8",
+      "category": "memory",
+      "severity": "high",
+      "title": "useEffect with subscription or timer but no cleanup",
+      "observation": "This effect sets up a subscription or timer but never cleans it up — it keeps running after the component unmounts, causing memory leaks.",
+      "agent_prompt": "In {file} at line {line}, add a return cleanup function to the useEffect that cancels the interval or removes the listener.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "useEffect containing setInterval/addEventListener/subscribe with no return function",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "react-missing-error-boundary",
+      "role": "webdev",
+      "framework": "react",
+      "framework_version": ">=16.0",
+      "category": "reliability",
+      "severity": "medium",
+      "title": "No error boundary around async data components",
+      "observation": "Components that fetch data have no error boundary — a single runtime error in a child will unmount the entire tree and show a blank screen.",
+      "agent_prompt": "In {file}, wrap the data-fetching component tree with an ErrorBoundary component. Show a meaningful fallback UI on error.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "component using useEffect for data fetch with no surrounding error boundary in tree",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "vue-v-for-no-key",
+      "role": "webdev",
+      "framework": "vue",
+      "framework_version": ">=2.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "v-for without :key",
+      "observation": "v-for without a :key causes Vue to reuse DOM elements incorrectly when the list updates — leading to wrong state being shown in the wrong items.",
+      "agent_prompt": "In {file} at line {line}, add :key with a stable unique identifier to the v-for directive. Don't use the loop index.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "v-for=[\"'][^\"']+[\"'](?!.*:key)",
+        "language": "html"
+      }
+    },
+    {
+      "id": "vue-reactive-object-mutation",
+      "role": "webdev",
+      "framework": "vue",
+      "framework_version": ">=2.0 <3.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Adding new property to reactive object directly (Vue 2)",
+      "observation": "Vue 2 can't detect property additions on reactive objects — this change won't trigger re-renders. Use Vue.set() or replace the whole object.",
+      "agent_prompt": "In {file} at line {line}, replace direct property assignment with Vue.set(object, property, value) or replace the entire object with a spread.",
+      "fix_confidence": "suggest",
+      "context_required": "vue 2 project (check package.json for vue version < 3)",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "new property assigned directly on this.data or reactive() object in Vue 2 project",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "nextjs-api-no-auth",
+      "role": "webdev",
+      "framework": "nextjs",
+      "framework_version": ">=9.0",
+      "category": "security",
+      "severity": "critical",
+      "title": "Next.js API route with no authentication check",
+      "observation": "This API route has no authentication check — it's publicly accessible to anyone who knows the URL.",
+      "agent_prompt": "In {file} at line {line}, add an auth check at the top of the handler. Verify the session or token before processing the request. Return 401 if not authenticated.",
+      "fix_confidence": "suggest",
+      "context_required": "app has auth system — check for next-auth, clerk, or similar in package.json",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "pages/api or app/api route handler with no session/token check near the top",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "nextjs-server-secret-client",
+      "role": "webdev",
+      "framework": "nextjs",
+      "framework_version": ">=9.0",
+      "category": "security",
+      "severity": "critical",
+      "title": "Server-side env variable used in client component",
+      "observation": "A server-side environment variable (without NEXT_PUBLIC_ prefix) is used in a client component — it will be bundled and exposed in the browser.",
+      "agent_prompt": "In {file} at line {line}, either prefix the variable with NEXT_PUBLIC_ if it's safe to expose, or move this logic to a server component or API route.",
+      "fix_confidence": "human",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "process.env.VARIABLE (without NEXT_PUBLIC_) in a 'use client' component or pages/ file",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "ts-as-any",
+      "role": "webdev",
+      "framework": "typescript",
+      "framework_version": ">=2.0",
+      "category": "type_safety",
+      "severity": "medium",
+      "title": "Type cast to any bypasses all type safety",
+      "observation": "Casting to any silences TypeScript completely for this value — any type error downstream will be a runtime surprise instead of a compile-time catch.",
+      "agent_prompt": "In {file} at line {line}, replace the 'as any' cast with the correct type or an unknown cast with a type guard. Don't suppress the error — fix the type.",
+      "fix_confidence": "human",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "as any(?!\\s*\\)\\s*as)",
+        "language": "typescript"
+      }
+    },
+    {
+      "id": "ts-non-null-assertion",
+      "role": "webdev",
+      "framework": "typescript",
+      "framework_version": ">=2.0",
+      "category": "type_safety",
+      "severity": "medium",
+      "title": "Non-null assertion on value that can be null",
+      "observation": "The ! operator tells TypeScript to trust you that this value is never null — but if it ever is, you get a runtime crash with no type warning.",
+      "agent_prompt": "In {file} at line {line}, replace the ! assertion with a proper null check or optional chaining (?.). Handle the null case explicitly.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "\\w+!\\.",
+        "language": "typescript"
+      }
+    },
+    {
+      "id": "node-unhandled-promise",
+      "role": "webdev",
+      "framework": "nodejs",
+      "framework_version": ">=8.0",
+      "category": "errors",
+      "severity": "high",
+      "title": "Unhandled promise rejection",
+      "observation": "This promise has no error handling — an unhandled rejection crashes the process in Node 15+ or silently swallows the error in older versions.",
+      "agent_prompt": "In {file} at line {line}, add try/catch around the await or a .catch() on the promise. Handle or rethrow the error.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "await or .then() with no surrounding try/catch and no .catch()",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "node-blocking-event-loop",
+      "role": "webdev",
+      "framework": "nodejs",
+      "framework_version": ">=0.1",
+      "category": "performance",
+      "severity": "high",
+      "title": "Synchronous operation blocking event loop",
+      "observation": "This synchronous operation runs on the event loop thread — it blocks every other request while it runs. In production this tanks throughput under any load.",
+      "agent_prompt": "In {file} at line {line}, replace with the async equivalent or move the heavy computation to a worker thread. Don't change the surrounding logic.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "fs\\.readFileSync|fs\\.writeFileSync|JSON\\.parse\\([^)]{100,}\\)",
+        "language": "javascript",
+        "context_required": "inside an HTTP request handler"
+      }
+    },
+    {
+      "id": "node-prototype-pollution",
+      "role": "webdev",
+      "framework": "nodejs",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "critical",
+      "title": "Prototype pollution via unsafe object merge",
+      "observation": "Merging user-controlled objects without sanitising __proto__ or constructor keys allows prototype pollution — attackers can inject properties onto every object in the process.",
+      "agent_prompt": "In {file} at line {line}, sanitise the input to strip __proto__, constructor, and prototype keys before merging.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "recursive merge or Object.assign with user-controlled input (req.body) as source",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "js-typeof-null",
+      "role": "webdev",
+      "framework": "javascript",
+      "framework_version": ">=0.1",
+      "category": "bugs",
+      "severity": "medium",
+      "title": "typeof null === 'object' — the classic JavaScript bug",
+      "observation": "typeof null returns 'object' — this is a 20-year-old JavaScript bug that never got fixed. Checking typeof x === 'object' without a null check will pass for null.",
+      "agent_prompt": "In {file} at line {line}, add an explicit null check: typeof x === 'object' && x !== null.",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "typeof\\s+\\w+\\s*===?\\s*['\"]object['\"](?!.*!== null)(?!.*null !==)",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "express-trust-proxy",
+      "role": "webdev",
+      "framework": "express",
+      "framework_version": ">=4.0",
+      "category": "security",
+      "severity": "high",
+      "title": "trust proxy set to true — IP spoofing risk",
+      "observation": "Setting trust proxy to true trusts all proxy headers unconditionally — an attacker can spoof their IP by setting X-Forwarded-For to anything.",
+      "agent_prompt": "In {file} at line {line}, replace 'trust proxy', true with 'trust proxy', 1 (or the correct hop count for your proxy setup).",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "set\\(['\"]trust proxy['\"],\\s*true\\)",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "express-missing-error-handler",
+      "role": "webdev",
+      "framework": "express",
+      "framework_version": ">=4.0",
+      "category": "errors",
+      "severity": "high",
+      "title": "No error handling middleware",
+      "observation": "This Express app has no error handling middleware — unhandled errors return a full stack trace to the client in development and crash silently in production.",
+      "agent_prompt": "In {file}, add error handling middleware with 4 arguments (err, req, res, next) as the last middleware. Return a sanitised error response.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "express app file with no 4-argument middleware registered",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "fullstack-env-in-client",
+      "role": "fullstack",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "critical",
+      "title": "Server-side secret exposed in client bundle",
+      "observation": "This environment variable is being used in client-side code — it will be bundled and shipped to every browser. If it's a secret key or token it's now public.",
+      "agent_prompt": "In {file} at line {line}, move this logic to the server side or replace the secret with a public-safe value.",
+      "fix_confidence": "human",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "process.env access in client-side file (no NEXT_PUBLIC_ or VITE_ prefix)",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "fullstack-sql-injection",
+      "role": "fullstack",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "critical",
+      "title": "SQL injection via string interpolation",
+      "observation": "This SQL query is built with string interpolation — any user-controlled input can break out of the query and execute arbitrary SQL.",
+      "agent_prompt": "In {file} at line {line}, replace string interpolation with parameterised queries. Pass user values as parameters, never inline.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "string template or concatenation containing req.body/req.params/req.query inside SQL keyword context",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "fullstack-missing-rate-limit",
+      "role": "fullstack",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "high",
+      "title": "Auth endpoint with no rate limiting",
+      "observation": "This auth endpoint has no rate limiting — it's open to credential stuffing and brute force attacks.",
+      "agent_prompt": "In {file} at line {line}, add rate limiting middleware. Limit to 5-10 attempts per IP per 15 minutes.",
+      "fix_confidence": "suggest",
+      "context_required": "route path contains login, signin, auth, password-reset",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "POST handler with auth-related path and no rate limiting middleware",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "go-goroutine-leak",
+      "role": "devops",
+      "framework": "go",
+      "framework_version": ">=1.0",
+      "category": "memory",
+      "severity": "high",
+      "title": "Goroutine leak — no exit condition",
+      "observation": "This goroutine has no way to exit — it leaks memory for the lifetime of the process. Under load these accumulate fast.",
+      "agent_prompt": "In {file} at line {line}, add a context or done channel to this goroutine so it can exit cleanly. Select on it inside the goroutine.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "go func() with no context parameter and no done channel or guaranteed return",
+        "language": "go"
+      }
+    },
+    {
+      "id": "go-loop-variable-closure",
+      "role": "devops",
+      "framework": "go",
+      "framework_version": ">=1.0 <1.22",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Loop variable captured by goroutine closure (pre-Go 1.22)",
+      "observation": "This goroutine closes over the loop variable — by the time it runs, the loop has finished and the variable holds the last value, not the intended one. Fixed in Go 1.22 but older codebases still have this.",
+      "agent_prompt": "In {file} at line {line}, shadow the loop variable before passing it to the goroutine: v := v before the go func(). Or upgrade to Go 1.22.",
+      "fix_confidence": "auto",
+      "context_required": "go version < 1.22 (check go.mod)",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "for loop variable referenced inside go func() or goroutine closure without shadowing",
+        "language": "go"
+      }
+    },
+    {
+      "id": "go-nil-map-write",
+      "role": "devops",
+      "framework": "go",
+      "framework_version": ">=1.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Write to nil map causes panic",
+      "observation": "Writing to a nil map panics at runtime — the map needs to be initialised with make() before any key is set.",
+      "agent_prompt": "In {file} at line {line}, initialise the map with make(map[KeyType]ValueType) before writing to it.",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "map variable declared with var (nil) and written to without make()",
+        "language": "go"
+      }
+    },
+    {
+      "id": "go-defer-in-loop",
+      "role": "devops",
+      "framework": "go",
+      "framework_version": ">=1.0",
+      "category": "memory",
+      "severity": "high",
+      "title": "defer inside a loop — cleanup deferred until function returns",
+      "observation": "defer inside a loop doesn't run until the function returns — not at the end of each iteration. Files and connections stay open for the entire loop.",
+      "agent_prompt": "In {file} at line {line}, extract the loop body into a separate function with the defer inside it, or call cleanup explicitly at each iteration.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "defer statement inside for loop body",
+        "language": "go"
+      }
+    },
+    {
+      "id": "go-error-ignored",
+      "role": "devops",
+      "framework": "go",
+      "framework_version": ">=1.0",
+      "category": "errors",
+      "severity": "high",
+      "title": "Error return value explicitly discarded",
+      "observation": "This explicitly discards an error return. Even if it seems unimportant, silently ignoring errors makes debugging production failures significantly harder.",
+      "agent_prompt": "In {file} at line {line}, handle the error instead of discarding it. At minimum log it. If it's safe to ignore, add a comment explaining why.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "^\\s*_\\s*=\\s*\\w+\\(",
+        "language": "go"
+      }
+    },
+    {
+      "id": "go-context-background-in-handler",
+      "role": "devops",
+      "framework": "go",
+      "framework_version": ">=1.7",
+      "category": "performance",
+      "severity": "medium",
+      "title": "context.Background() in HTTP handler ignores cancellation",
+      "observation": "Creating a new background context inside a handler ignores the request's cancellation signal — if the client disconnects, downstream operations keep running.",
+      "agent_prompt": "In {file} at line {line}, replace context.Background() with r.Context() to propagate request cancellation.",
+      "fix_confidence": "auto",
+      "context_required": "inside an http.Handler or gin/echo handler function",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "context\\.Background\\(\\)|context\\.TODO\\(\\)",
+        "language": "go",
+        "context_required": "inside http handler function"
+      }
+    },
+    {
+      "id": "docker-latest-tag",
+      "role": "devops",
+      "framework": "docker",
+      "framework_version": ">=1.0",
+      "category": "reliability",
+      "severity": "high",
+      "title": "FROM latest — non-deterministic builds",
+      "observation": "Using :latest means your builds are non-deterministic — the base image changes between builds and breaks things in ways that are very hard to debug in production.",
+      "agent_prompt": "In {file} at line {line}, pin the base image to a specific version tag or SHA digest.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "^FROM\\s+\\S+:latest",
+        "language": "dockerfile"
+      }
+    },
+    {
+      "id": "docker-running-as-root",
+      "role": "devops",
+      "framework": "docker",
+      "framework_version": ">=1.0",
+      "category": "security",
+      "severity": "high",
+      "title": "Container runs as root by default",
+      "observation": "Containers that don't specify a USER instruction run as root — if the container is compromised, the attacker has root access to everything it can reach.",
+      "agent_prompt": "In {file}, add a USER instruction before the final CMD or ENTRYPOINT. Create a non-root user with useradd if needed.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "Dockerfile with no USER instruction before CMD or ENTRYPOINT",
+        "language": "dockerfile"
+      }
+    },
+    {
+      "id": "docker-secrets-in-layer",
+      "role": "devops",
+      "framework": "docker",
+      "framework_version": ">=1.0",
+      "category": "security",
+      "severity": "critical",
+      "title": "Secret or credential in Dockerfile layer",
+      "observation": "Secrets in Dockerfile ARG or ENV instructions are baked into image layers — even if you unset them later they're recoverable from the layer history.",
+      "agent_prompt": "In {file} at line {line}, remove the secret from the Dockerfile. Use Docker BuildKit secrets (--mount=type=secret) or pass them at runtime via environment.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "(ARG|ENV)\\s+(PASSWORD|SECRET|TOKEN|KEY|API_KEY|PRIVATE)\\s*=",
+        "language": "dockerfile"
+      }
+    },
+    {
+      "id": "terraform-state-in-repo",
+      "role": "devops",
+      "framework": "terraform",
+      "framework_version": ">=0.12",
+      "category": "security",
+      "severity": "critical",
+      "title": "Terraform state file committed to repository",
+      "observation": "Terraform state files contain plaintext secrets, resource IDs, and full infrastructure details. Committing them exposes your entire infrastructure.",
+      "agent_prompt": "Add terraform.tfstate and terraform.tfstate.backup to .gitignore immediately. Configure a remote backend (S3, GCS, Terraform Cloud) for state storage.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "text_search",
+        "pattern": "terraform.tfstate",
+        "search_in": "git_tracked_files"
+      }
+    },
+    {
+      "id": "k8s-no-resource-limits",
+      "role": "devops",
+      "framework": "kubernetes",
+      "framework_version": ">=1.0",
+      "category": "reliability",
+      "severity": "high",
+      "title": "Container with no resource limits",
+      "observation": "Containers without resource limits can consume unbounded CPU and memory — one misbehaving pod can starve the entire node.",
+      "agent_prompt": "In {file}, add resources.requests and resources.limits to the container spec. Start with modest values based on typical usage.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "Kubernetes Deployment or Pod spec YAML with containers section but no resources.limits",
+        "language": "yaml"
+      }
+    },
+    {
+      "id": "github-actions-secret-log",
+      "role": "devops",
+      "framework": "github_actions",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "critical",
+      "title": "Secret value echoed in workflow logs",
+      "observation": "This workflow step prints a secret to the log — GitHub masks known secrets but only if they're declared as secrets. Derived or modified secret values are not masked.",
+      "agent_prompt": "In {file} at line {line}, remove the echo/print of the secret value. If you need to debug, use a step summary instead of stdout.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "echo or run step printing ${{ secrets.* }} value directly",
+        "language": "yaml"
+      }
+    },
+    {
+      "id": "github-actions-untrusted-action",
+      "role": "devops",
+      "framework": "github_actions",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "high",
+      "title": "Third-party action without pinned SHA",
+      "observation": "Using a third-party action pinned to a tag (v1, v2) means the action owner can push malicious code to that tag and it will run in your pipeline. Pin to a full commit SHA instead.",
+      "agent_prompt": "In {file} at line {line}, replace the tag reference with the full commit SHA of that tag. Check the action's releases page.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "uses:\\s+[^@]+@v\\d",
+        "language": "yaml"
+      }
+    },
+    {
+      "id": "sec-hardcoded-secret",
+      "role": "cyber",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "critical",
+      "title": "Hardcoded secret, key, or token in source",
+      "observation": "There's what looks like a hardcoded secret in this file. Even in private repositories this is a risk — git history is permanent and repository access changes.",
+      "agent_prompt": "In {file} at line {line}, move this value to an environment variable or secret manager. Replace the literal with a lookup.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "string literal matching common secret patterns: high entropy, API key format, private key header",
+        "language": "any"
+      }
+    },
+    {
+      "id": "sec-jwt-algorithm-none",
+      "role": "cyber",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "critical",
+      "title": "JWT verification without explicit algorithm allowlist",
+      "observation": "Not specifying allowed algorithms in JWT verification allows the 'none' algorithm attack — an attacker can forge tokens by removing the signature entirely.",
+      "agent_prompt": "In {file} at line {line}, add an explicit algorithms allowlist to the JWT verify call. Never allow 'none'. Specify only the algorithms you actually use.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "jwt.verify() or equivalent called without algorithms option",
+        "language": "any"
+      }
+    },
+    {
+      "id": "sec-missing-csrf",
+      "role": "cyber",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "high",
+      "title": "State-changing endpoint with no CSRF protection",
+      "observation": "This state-changing endpoint has no CSRF protection — a malicious site can trick an authenticated user's browser into making requests to it.",
+      "agent_prompt": "In {file} at line {line}, add CSRF token validation middleware to this route. Or set SameSite=Strict on the session cookie.",
+      "fix_confidence": "suggest",
+      "context_required": "uses cookie-based auth (not JWT in header)",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "POST/PUT/DELETE handler in cookie-auth app with no csrf middleware",
+        "language": "any"
+      }
+    },
+    {
+      "id": "sec-insecure-random",
+      "role": "cyber",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "high",
+      "title": "Non-cryptographic RNG for security-sensitive values",
+      "observation": "Math.random() / rand() is predictable and must never be used for tokens, session IDs, or passwords.",
+      "agent_prompt": "In {file} at line {line}, replace with crypto.randomBytes() (Node), secrets.token_hex() (Python), or crypto/rand (Go).",
+      "fix_confidence": "auto",
+      "context_required": "used in auth, token generation, or password reset context",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "Math.random() or rand() in token/session/password generation context",
+        "language": "any"
+      }
+    },
+    {
+      "id": "sec-missing-input-validation",
+      "role": "cyber",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "high",
+      "title": "User input used without validation",
+      "observation": "User input is being used directly without validation — depending on context this could be injection, path traversal, or command injection.",
+      "agent_prompt": "In {file} at line {line}, validate and sanitise the input before using it. Use an allowlist — define what's valid, reject everything else.",
+      "fix_confidence": "human",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "req.body/req.params/req.query used directly in file path, command, or DB context",
+        "language": "any"
+      }
+    },
+    {
+      "id": "ml-data-leakage",
+      "role": "data",
+      "framework": "sklearn",
+      "framework_version": ">=0.1",
+      "category": "ml_correctness",
+      "severity": "critical",
+      "title": "Data leakage — preprocessing before train/test split",
+      "observation": "Fitting the preprocessor on the full dataset before splitting leaks test data into training — your evaluation metrics are unreliable and the model's real-world performance is unknown.",
+      "agent_prompt": "In {file} at line {line}, fit the preprocessor only on training data. Use a Pipeline to ensure transforms are applied correctly to both sets.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "fit_transform() or fit() called on full dataset before train_test_split()",
+        "language": "python"
+      }
+    },
+    {
+      "id": "ml-wrong-metric",
+      "role": "data",
+      "framework": "sklearn",
+      "framework_version": ">=0.1",
+      "category": "ml_correctness",
+      "severity": "high",
+      "title": "Accuracy on imbalanced dataset is misleading",
+      "observation": "Accuracy is misleading on imbalanced datasets — a model predicting only the majority class can score 95%+ accuracy while being completely useless.",
+      "agent_prompt": "In {file} at line {line}, replace or supplement accuracy with F1, precision, recall, or AUC-ROC depending on your use case.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "accuracy_score used as only metric on dataset with class distribution > 80/20",
+        "language": "python"
+      }
+    },
+    {
+      "id": "python-mutable-default",
+      "role": "data",
+      "framework": "python",
+      "framework_version": ">=2.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Mutable default argument — shared across all calls",
+      "observation": "Mutable default arguments are shared across all calls — the object is created once when the function is defined, not each time it's called. Mutations persist between calls.",
+      "agent_prompt": "In {file} at line {line}, replace the mutable default with None and initialise it inside the function body: if x is None: x = []",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "def\\s+\\w+\\([^)]*=\\s*(\\[|\\{)",
+        "language": "python"
+      }
+    },
+    {
+      "id": "python-datetime-default",
+      "role": "data",
+      "framework": "python",
+      "framework_version": ">=2.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "datetime.now() as default argument — evaluated once at module load",
+      "observation": "Default arguments are evaluated once when the function is defined — datetime.now() as a default gives the same timestamp forever, not the current time when called.",
+      "agent_prompt": "In {file} at line {line}, replace datetime.now() with None as the default and call datetime.now() inside the function body.",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "def\\s+\\w+\\([^)]*=\\s*datetime\\.now\\(\\)",
+        "language": "python"
+      }
+    },
+    {
+      "id": "python-bare-except",
+      "role": "data",
+      "framework": "python",
+      "framework_version": ">=2.0",
+      "category": "errors",
+      "severity": "medium",
+      "title": "Bare except catches SystemExit and KeyboardInterrupt",
+      "observation": "A bare except catches KeyboardInterrupt and SystemExit — the program can't be stopped with Ctrl+C and deployment scripts can't terminate it cleanly.",
+      "agent_prompt": "In {file} at line {line}, replace the bare except with specific exception types. If you must catch broadly, use except Exception as e: and log the error.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "except:\\s*$",
+        "language": "python"
+      }
+    },
+    {
+      "id": "pandas-chained-assignment",
+      "role": "data",
+      "framework": "pandas",
+      "framework_version": ">=1.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Chained assignment modifies a copy — change disappears silently",
+      "observation": "Chained indexing on the left side of an assignment modifies a copy, not the original DataFrame — the change silently disappears.",
+      "agent_prompt": "In {file} at line {line}, replace chained assignment with .loc[mask, col] = value to modify the original DataFrame directly.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "\\w+\\[.+\\]\\[.+\\]\\s*=",
+        "language": "python"
+      }
+    },
+    {
+      "id": "ml-no-random-seed",
+      "role": "data",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "reproducibility",
+      "severity": "medium",
+      "title": "No random seed — non-reproducible experiment results",
+      "observation": "Without a fixed seed, results differ between runs — experiments aren't reproducible and results can't be compared reliably.",
+      "agent_prompt": "In {file} at line {line}, set random_state=42 on the model and train_test_split calls. Add numpy.random.seed() at the top of the script.",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "model instantiation or train_test_split with no random_state parameter",
+        "language": "python"
+      }
+    },
+    {
+      "id": "pytorch-no-eval-mode",
+      "role": "data",
+      "framework": "pytorch",
+      "framework_version": ">=1.0",
+      "category": "ml_correctness",
+      "severity": "high",
+      "title": "model.eval() not called before inference",
+      "observation": "Without model.eval(), dropout and batch normalisation layers behave differently at inference than at training — predictions will be inconsistent and slightly wrong.",
+      "agent_prompt": "In {file} at line {line}, call model.eval() before the inference block and wrap it in torch.no_grad(): for efficiency.",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "model called for inference/prediction without preceding model.eval()",
+        "language": "python"
+      }
+    },
+    {
+      "id": "pytorch-grad-not-zeroed",
+      "role": "data",
+      "framework": "pytorch",
+      "framework_version": ">=1.0",
+      "category": "ml_correctness",
+      "severity": "high",
+      "title": "Gradients not zeroed before backward pass",
+      "observation": "PyTorch accumulates gradients by default — not calling optimizer.zero_grad() before each backward pass means gradients from previous batches accumulate, corrupting training.",
+      "agent_prompt": "In {file} at line {line}, add optimizer.zero_grad() before loss.backward() in the training loop.",
+      "fix_confidence": "auto",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "loss.backward() in training loop without preceding optimizer.zero_grad()",
+        "language": "python"
+      }
+    },
+    {
+      "id": "jupyter-out-of-order",
+      "role": "data",
+      "framework": "jupyter",
+      "framework_version": ">=0.1",
+      "category": "reproducibility",
+      "severity": "high",
+      "title": "Notebook cells executed out of order",
+      "observation": "Cell execution numbers show this notebook has been run out of order — results may not be reproducible by running top-to-bottom, and shared notebooks will confuse collaborators.",
+      "agent_prompt": null,
+      "fix_confidence": "human",
+      "note": "Restart kernel and run all cells to verify top-to-bottom reproducibility.",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "Jupyter notebook with non-sequential execution_count values in cell metadata",
+        "language": "json"
+      }
+    },
+    {
+      "id": "rn-flatlist-no-key",
+      "role": "mobile",
+      "framework": "react-native",
+      "framework_version": ">=0.60",
+      "category": "performance",
+      "severity": "high",
+      "title": "FlatList without keyExtractor",
+      "observation": "FlatList without keyExtractor falls back to the item's index — causing incorrect recycling of list items when the list updates, producing visual glitches.",
+      "agent_prompt": "In {file} at line {line}, add a keyExtractor prop that returns a stable unique string from each item. Use the item's ID, not its index.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "FlatList component without keyExtractor prop",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "rn-async-storage-sensitive",
+      "role": "mobile",
+      "framework": "react-native",
+      "framework_version": ">=0.60",
+      "category": "security",
+      "severity": "high",
+      "title": "Sensitive data in AsyncStorage — unencrypted",
+      "observation": "AsyncStorage is unencrypted and accessible on rooted/jailbroken devices. Tokens and credentials belong in the secure keychain.",
+      "agent_prompt": "In {file} at line {line}, replace AsyncStorage with react-native-keychain or expo-secure-store for this sensitive value.",
+      "fix_confidence": "suggest",
+      "context_required": "value key or stored value contains: token, password, secret, key, auth",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "AsyncStorage\\.setItem\\(['\"][^'\"]*(?:token|password|secret|key|auth)",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "rn-bridge-large-object",
+      "role": "mobile",
+      "framework": "react-native",
+      "framework_version": ">=0.60",
+      "category": "performance",
+      "severity": "medium",
+      "title": "Large object crossing React Native bridge",
+      "observation": "Passing large objects across the JS-native bridge is expensive — each crossing serialises and deserialises the entire object. Large payloads here cause janky UI.",
+      "agent_prompt": "In {file} at line {line}, minimise the data crossing the bridge. Pass only the fields needed. Move heavy computation to the native side or use a shared buffer.",
+      "fix_confidence": "human",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "NativeModule call or native event with large object payload",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "rn-main-thread-js",
+      "role": "mobile",
+      "framework": "react-native",
+      "framework_version": ">=0.60",
+      "category": "performance",
+      "severity": "high",
+      "title": "Heavy computation on JS thread causing frame drops",
+      "observation": "Heavy synchronous JS on the main thread blocks UI rendering — anything over ~16ms causes visible frame drops on device.",
+      "agent_prompt": "In {file} at line {line}, move this computation to InteractionManager.runAfterInteractions() or a background task.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "heavy array operation or synchronous computation inside render or event handler",
+        "language": "javascript"
+      }
+    },
+    {
+      "id": "swift-force-unwrap",
+      "role": "mobile",
+      "framework": "swift",
+      "framework_version": ">=4.0",
+      "category": "bugs",
+      "severity": "high",
+      "title": "Force unwrapping optional — will crash if nil",
+      "observation": "Force unwrapping with ! crashes the app if the value is nil. This is one of the most common causes of Swift app crashes in production.",
+      "agent_prompt": "In {file} at line {line}, replace force unwrap with guard let, if let, or the nil coalescing operator ??. Handle the nil case explicitly.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "\\w+!\\.",
+        "language": "swift"
+      }
+    },
+    {
+      "id": "swift-strong-reference-cycle",
+      "role": "mobile",
+      "framework": "swift",
+      "framework_version": ">=4.0",
+      "category": "memory",
+      "severity": "high",
+      "title": "Strong reference cycle in closure — memory leak",
+      "observation": "This closure captures self strongly — if self also holds a reference to this closure, neither will be deallocated. Common pattern in delegates and completion handlers.",
+      "agent_prompt": "In {file} at line {line}, add [weak self] or [unowned self] to the closure capture list. Guard against nil if using weak.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "closure that captures self without [weak self] or [unowned self]",
+        "language": "swift"
+      }
+    },
+    {
+      "id": "kotlin-coroutine-scope-leak",
+      "role": "mobile",
+      "framework": "kotlin",
+      "framework_version": ">=1.3",
+      "category": "memory",
+      "severity": "high",
+      "title": "Coroutine scope not tied to lifecycle — memory leak",
+      "observation": "Launching coroutines in GlobalScope or a custom scope not tied to the lifecycle means they keep running after the Activity or Fragment is destroyed.",
+      "agent_prompt": "In {file} at line {line}, replace GlobalScope.launch with lifecycleScope.launch or viewModelScope.launch so coroutines cancel with the lifecycle.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "GlobalScope\\.(launch|async)",
+        "language": "kotlin",
+        "context_required": "inside Activity or Fragment"
+      }
+    },
+    {
+      "id": "ios-missing-privacy-description",
+      "role": "mobile",
+      "framework": "ios",
+      "framework_version": ">=13.0",
+      "category": "app_store",
+      "severity": "critical",
+      "title": "Permission used without privacy description in Info.plist",
+      "observation": "iOS crashes the app at runtime if a permission is requested without a usage description string in Info.plist. App Store review will also reject the build.",
+      "agent_prompt": "In {repo}/ios/Info.plist, add the missing NSUsageDescription key with a clear user-facing explanation of why the app needs this permission.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "camera/microphone/location/contacts API used without corresponding NSUsageDescription in Info.plist",
+        "language": "swift"
+      }
+    },
+    {
+      "id": "android-cleartext-traffic",
+      "role": "mobile",
+      "framework": "android",
+      "framework_version": ">=9.0",
+      "category": "security",
+      "severity": "high",
+      "title": "Cleartext HTTP traffic allowed globally",
+      "observation": "Allowing cleartext HTTP traffic globally exposes users to MITM attacks. Android 9+ blocks it by default for good reason.",
+      "agent_prompt": "In {file}, remove android:usesCleartextTraffic=true and update HTTP URLs to HTTPS. If a specific domain needs HTTP, scope it in a network security config.",
+      "fix_confidence": "suggest",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "usesCleartextTraffic=\"true\"",
+        "language": "xml"
+      }
+    },
+    {
+      "id": "universal-debug-in-production",
+      "role": "any",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "medium",
+      "title": "Debug mode enabled in production config",
+      "observation": "Debug mode in production can leak stack traces, internal paths, environment variables, and sensitive data in error responses.",
+      "agent_prompt": "In {file} at line {line}, set DEBUG=false and log level to warn or error in production. Guard verbose logging behind environment checks.",
+      "fix_confidence": "auto",
+      "context_required": "production environment config file",
+      "detect_pattern": {
+        "type": "regex",
+        "pattern": "DEBUG\\s*=\\s*true|debug:\\s*true",
+        "language": "any",
+        "context_required": "production config file"
+      }
+    },
+    {
+      "id": "universal-log-sensitive-data",
+      "role": "any",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "high",
+      "title": "Sensitive user data in log statements",
+      "observation": "This log statement may be printing sensitive user data — logs are stored, aggregated, and accessed by many people and systems.",
+      "agent_prompt": "In {file} at line {line}, remove or redact the sensitive fields. Log the shape of the data, not the values.",
+      "fix_confidence": "suggest",
+      "context_required": "logged variable name contains: password, token, secret, key, email, credit_card",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "console.log/print/logger containing variable with sensitive-looking name",
+        "language": "any"
+      }
+    },
+    {
+      "id": "universal-todo-security-path",
+      "role": "any",
+      "framework": "any",
+      "framework_version": ">=0.1",
+      "category": "security",
+      "severity": "medium",
+      "title": "TODO or FIXME in security-critical code",
+      "observation": "There's an unresolved TODO in a security-critical path. These tend to stay unresolved much longer than intended and often represent known weaknesses.",
+      "agent_prompt": null,
+      "fix_confidence": "human",
+      "note": "No agent prompt — this requires a human decision about what the TODO means.",
+      "context_required": "within 5 lines of auth check, payment processing, or permission validation",
+      "detect_pattern": {
+        "type": "heuristic",
+        "description": "TODO or FIXME comment near auth/payments/permission code",
+        "language": "any"
+      }
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "name": "flint",
+  "displayName": "Flint",
+  "description": "The senior dev that never leaves",
+  "version": "0.1.0",
+  "publisher": "flintlang",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flintlang/flint.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["ai", "developer-experience", "code-review", "intelligence"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flint-container",
+          "title": "Flint",
+          "icon": "media/flint.svg"
+        }
+      ]
+    },
+    "views": {
+      "flint-container": [
+        {
+          "id": "flint.sidebar",
+          "name": "Flint",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "flint.showStatus",
+        "title": "Flint: Show Status",
+        "category": "Flint"
+      },
+      {
+        "command": "flint.startDaemon",
+        "title": "Flint: Start Daemon",
+        "category": "Flint"
+      },
+      {
+        "command": "flint.stopDaemon",
+        "title": "Flint: Stop Daemon",
+        "category": "Flint"
+      }
+    ],
+    "configuration": {
+      "title": "Flint",
+      "properties": {
+        "flint.awareness": {
+          "type": "string",
+          "enum": ["spark", "flame", "forge"],
+          "default": "spark",
+          "description": "Flint awareness level. spark = manual tools only. flame = daemon watches this project. forge = daemon watches all projects."
+        },
+        "flint.humanLayer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable human intelligence layer (burnout signals, career blind spots). Off by default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/vscode": "^1.120.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.5.0"
+  }
+}
