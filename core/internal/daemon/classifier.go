@@ -106,17 +106,17 @@ func (c *Classifier) Classify(s Signal) (SessionType, float64) {
 	} else if s.BurstSize > 20 {
 		scores[SessionAgentAssisted] += 0.10
 		scores[SessionVibeCoding] += 0.08
-	} else {
-		scores[SessionHuman] += 0.15
+	} else if s.BurstSize <= 5 {
+		// Small, deliberate edits lean human — mid-range is neutral
+		scores[SessionHuman] += 0.10
 	}
 
 	// ── Signal 3: Large chunk detection (weight 0.18)
 	if s.HasLargeChunk {
 		scores[SessionVibeCoding] += 0.18
 		scores[SessionAgentAssisted] += 0.12
-	} else {
-		scores[SessionHuman] += 0.10
 	}
+	// No large chunk is neutral — consistent with both human and pair programming
 
 	// ── Signal 4: Saves per minute vs baseline (weight 0.10)
 	if c.baseline.AvgSavesPerMinute > 0 {
@@ -176,9 +176,11 @@ func (c *Classifier) Classify(s Signal) (SessionType, float64) {
 		scores[SessionVibeCoding] += 0.05
 	}
 
-	// ── Signal 12: Multiple cursors / authors (weight 0.20)
+	// ── Signal 12: Multiple cursors / authors (weight 0.45)
+	// Pair programming is the only session type with multiple active authors —
+	// the weight is high because this signal is highly specific when present.
 	if s.MultipleCursors {
-		scores[SessionPairProg] += 0.20
+		scores[SessionPairProg] += 0.45
 	}
 
 	// Find winner among the four real types — SessionMixed is decided below,
