@@ -54,7 +54,7 @@ func run() error {
 	}
 
 	socketPath := ipc.SocketPath(config.FlintDir(), workspaceRoot)
-	d, err := daemon.New(cfg, db, socketPath, sharedDir)
+	d, err := daemon.New(cfg, db, socketPath, sharedDir, workspaceRoot)
 	if err != nil {
 		return fmt.Errorf("daemon: %w", err)
 	}

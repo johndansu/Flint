@@ -22,6 +22,9 @@ const (
 	vibeStillness  = 10 * time.Second
 	vibeGap        = 10 * time.Minute
 	vibeMaxPerSess = 8
+
+	// A gap longer than this between file events starts a new session.
+	sessionGap = 30 * time.Minute
 )
 
 // ObserveFn is called by the nudge engine when all time gates pass.
@@ -41,6 +44,8 @@ type NudgeEngine struct {
 	lastObs     time.Time
 	obsThisSess int
 	sessionType string
+	sessionID   int64
+	workspace   string
 
 	// debouncer: a single timer, reset on every file event.
 	// Replaces the previous per-event goroutine approach which leaked one
@@ -49,15 +54,21 @@ type NudgeEngine struct {
 	pendingPath string
 }
 
-// NewNudgeEngine creates a NudgeEngine.
-func NewNudgeEngine(cfg *config.Config, db *store.DB, server *ipc.Server, observe ObserveFn) *NudgeEngine {
-	return &NudgeEngine{
+// NewNudgeEngine creates a NudgeEngine and records the initial session in the store.
+func NewNudgeEngine(cfg *config.Config, db *store.DB, server *ipc.Server, workspace string, observe ObserveFn) *NudgeEngine {
+	n := &NudgeEngine{
 		cfg:         cfg,
 		db:          db,
 		server:      server,
 		observe:     observe,
 		sessionType: "human",
+		workspace:   workspace,
 	}
+	id, err := db.StartSession("human", workspace)
+	if err == nil {
+		n.sessionID = id
+	}
+	return n
 }
 
 // OnFileChange is called for every file event. It resets the debounce timer so
@@ -67,15 +78,17 @@ func (n *NudgeEngine) OnFileChange(ctx context.Context, event FileEvent) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// Detect session boundary: 30+ minutes since the last file activity.
+	if !n.lastChange.IsZero() && event.Time.Sub(n.lastChange) > sessionGap {
+		n.newSessionLocked()
+	}
+
 	n.lastChange = event.Time
 	n.pendingPath = event.Path
 
 	// Stop the existing timer if it hasn't fired yet.
 	if n.timer != nil {
 		n.timer.Stop()
-		// Drain the channel in case the timer already fired and sent to C
-		// but the AfterFunc callback hasn't run yet. AfterFunc timers don't
-		// expose C, so we just Stop — no drain needed.
 	}
 
 	stillness := n.stillnessLocked()
@@ -83,6 +96,20 @@ func (n *NudgeEngine) OnFileChange(ctx context.Context, event FileEvent) {
 	n.timer = time.AfterFunc(stillness, func() {
 		n.maybeObserve(ctx, event.Path)
 	})
+}
+
+// newSessionLocked ends the current session and starts a fresh one.
+// Must be called with n.mu held.
+func (n *NudgeEngine) newSessionLocked() {
+	if n.sessionID != 0 {
+		_ = n.db.EndSession(n.sessionID)
+	}
+	id, err := n.db.StartSession(n.sessionType, n.workspace)
+	if err == nil {
+		n.sessionID = id
+	}
+	n.obsThisSess = 0
+	log.Printf("nudge: new session (30-min inactivity gap)")
 }
 
 // maybeObserve fires an observation if all time gates pass.
@@ -143,6 +170,16 @@ func (n *NudgeEngine) ResetSession() {
 	n.mu.Lock()
 	n.obsThisSess = 0
 	n.mu.Unlock()
+}
+
+// Shutdown marks the current session as ended. Call on daemon exit.
+func (n *NudgeEngine) Shutdown() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.sessionID != 0 {
+		_ = n.db.EndSession(n.sessionID)
+		n.sessionID = 0
+	}
 }
 
 // All three helpers below are called with n.mu already held.

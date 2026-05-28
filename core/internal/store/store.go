@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -48,8 +49,27 @@ func (d *DB) Raw() *sql.DB { return d.sql }
 // ---------------------------------------------------------------------------
 
 func (d *DB) migrate() error {
-	_, err := d.sql.Exec(schema)
-	return err
+	if _, err := d.sql.Exec(schema); err != nil {
+		return err
+	}
+	return d.runMigrations()
+}
+
+// runMigrations applies incremental ALTER TABLE changes.
+// Each statement is run independently so a duplicate-column error on an
+// already-migrated database is silently ignored.
+func (d *DB) runMigrations() error {
+	alters := []string{
+		`ALTER TABLE sessions ADD COLUMN last_activity_at TEXT`,
+	}
+	for _, stmt := range alters {
+		if _, err := d.sql.Exec(stmt); err != nil {
+			if !strings.Contains(err.Error(), "duplicate column name") {
+				return fmt.Errorf("store: migration %q: %w", stmt, err)
+			}
+		}
+	}
+	return nil
 }
 
 const schema = `
@@ -170,6 +190,33 @@ func (d *DB) InsertObservation(o Observation) error {
 		nullStr(o.FilePath), nullInt(o.LineNumber),
 		nullStr(o.SessionType), nullStr(o.FootgunID),
 		o.Timestamp.UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+// StartSession inserts a new session row and returns its ID.
+func (d *DB) StartSession(sessionType, workspace string) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := d.sql.Exec(`
+		INSERT INTO sessions (session_type, state, started_at, last_activity_at, workspace)
+		VALUES (?, 'active', ?, ?, ?)`,
+		sessionType, now, now, nullStr(workspace),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// EndSession marks a session as ended.
+func (d *DB) EndSession(id int64) error {
+	_, err := d.sql.Exec(`
+		UPDATE sessions SET ended_at = ?, state = 'ended' WHERE id = ?`,
+		time.Now().UTC().Format(time.RFC3339), id,
 	)
 	return err
 }

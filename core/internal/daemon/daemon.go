@@ -41,7 +41,8 @@ type Daemon struct {
 }
 
 // New creates a new Daemon. sharedDir is the path to shared/ (for footguns.json).
-func New(cfg *config.Config, db *store.DB, socketPath, sharedDir string) (*Daemon, error) {
+// workspaceRoot is used to scope session records in the store.
+func New(cfg *config.Config, db *store.DB, socketPath, sharedDir, workspaceRoot string) (*Daemon, error) {
 	el, err := errorlog.New(db, config.FlintDir(), cfg.Project)
 	if err != nil {
 		return nil, fmt.Errorf("daemon: error log: %w", err)
@@ -67,7 +68,7 @@ func New(cfg *config.Config, db *store.DB, socketPath, sharedDir string) (*Daemo
 	d.filesInBurst = make(map[string]bool)
 
 	// Wire nudge engine → observation pipeline
-	d.nudge = NewNudgeEngine(cfg, db, d.server, func(ctx context.Context, filePath, sessionType string) {
+	d.nudge = NewNudgeEngine(cfg, db, d.server, workspaceRoot, func(ctx context.Context, filePath, sessionType string) {
 		d.pipeline.Run(ctx, filePath, sessionType)
 	})
 
@@ -121,6 +122,7 @@ func (d *Daemon) stop() {
 	}
 	d.server.Close()
 	d.el.Close()
+	d.nudge.Shutdown()
 	d.wg.Wait()
 }
 
