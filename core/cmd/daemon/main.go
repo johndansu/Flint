@@ -12,6 +12,7 @@ import (
 	"flint/core/internal/config"
 	"flint/core/internal/daemon"
 	"flint/core/internal/ipc"
+	"flint/core/internal/registry"
 	"flint/core/internal/store"
 )
 
@@ -46,23 +47,16 @@ func run() error {
 	}
 	defer db.Close()
 
-	// Resolve shared/ directory relative to the binary (same layout as flint CLI)
+	// Resolve shared/ directory relative to the binary
 	exe, _ := os.Executable()
 	sharedDir := filepath.Join(filepath.Dir(exe), "..", "..", "..", "shared")
 	if _, err := os.Stat(filepath.Join(sharedDir, "footguns.json")); err != nil {
-		sharedDir = "shared" // fallback to working directory
-	}
-
-	socketPath := ipc.SocketPath(config.FlintDir(), workspaceRoot)
-	d, err := daemon.New(cfg, db, socketPath, sharedDir, workspaceRoot)
-	if err != nil {
-		return fmt.Errorf("daemon: %w", err)
+		sharedDir = "shared"
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Graceful shutdown on SIGINT / SIGTERM
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -71,6 +65,36 @@ func run() error {
 		cancel()
 	}()
 
+	// Forge mode: watch all registered workspaces
+	if cfg.Awareness == config.Forge {
+		return runForge(ctx, cfg, db, sharedDir, workspaceRoot)
+	}
+
+	// Flame mode: watch only the current workspace
+	socketPath := ipc.SocketPath(config.FlintDir(), workspaceRoot)
+	d, err := daemon.New(cfg, db, socketPath, sharedDir, workspaceRoot)
+	if err != nil {
+		return fmt.Errorf("daemon: %w", err)
+	}
+
 	log.Printf("socket: %s", socketPath)
 	return d.Run(ctx, workspaceRoot)
+}
+
+func runForge(ctx context.Context, cfg *config.Config, db *store.DB, sharedDir, currentRoot string) error {
+	// Always ensure the current workspace is registered
+	_ = registry.Register(config.FlintDir(), currentRoot)
+
+	reg, err := registry.Load(config.FlintDir())
+	if err != nil || len(reg.Workspaces) == 0 {
+		reg = &registry.Registry{Workspaces: []string{currentRoot}}
+	}
+
+	log.Printf("forge mode: %d registered workspace(s)", len(reg.Workspaces))
+	for _, w := range reg.Workspaces {
+		log.Printf("  %s", w)
+	}
+
+	fd := daemon.NewForge(cfg, db, sharedDir)
+	return fd.Run(ctx, reg.Workspaces)
 }

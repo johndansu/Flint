@@ -8,6 +8,7 @@ import (
 
 	"flint/core/internal/config"
 	"flint/core/internal/ipc"
+	"flint/core/internal/registry"
 	"flint/core/internal/store"
 )
 
@@ -33,6 +34,23 @@ func cmdStatus(args []string) error {
 
 	if n, err := db.CountObservations(); err == nil {
 		fmt.Printf("  Observations: %d total\n", n)
+	}
+
+	// In Forge mode, show all registered workspaces and which are running
+	if cfg.Awareness == config.Forge {
+		if reg, err := registry.Load(config.FlintDir()); err == nil && len(reg.Workspaces) > 0 {
+			fmt.Printf("\n  Registered workspaces (%d):\n", len(reg.Workspaces))
+			for _, w := range reg.Workspaces {
+				status := "running"
+				sock := ipc.SocketPath(config.FlintDir(), w)
+				if conn, err := net.DialTimeout("unix", sock, 200*time.Millisecond); err != nil {
+					status = "stopped"
+				} else {
+					conn.Close()
+				}
+				fmt.Printf("    [%s] %s\n", status, w)
+			}
+		}
 	}
 
 	if errs, err := db.RecentErrors(3); err == nil && len(errs) > 0 {

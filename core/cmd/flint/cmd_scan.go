@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"flint/core/internal/config"
+	"flint/core/internal/registry"
 	"flint/core/internal/store"
 )
 
@@ -64,6 +65,9 @@ func cmdScan(args []string) error {
 			return fmt.Errorf("save baseline %s: %w", k, err)
 		}
 	}
+
+	// Register so Forge mode can discover this workspace
+	_ = registry.Register(config.FlintDir(), root)
 
 	fmt.Printf("✓ Indexed %d files (%d Go, %d TypeScript, %d Python)\n",
 		stats.files, stats.goFiles, stats.tsFiles, stats.pyFiles)

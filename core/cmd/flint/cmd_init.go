@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"flint/core/internal/config"
+	"flint/core/internal/registry"
 )
 
 func cmdInit(args []string) error {
@@ -28,6 +29,9 @@ func cmdInit(args []string) error {
 	if err := config.SaveLocal(wd, local); err != nil {
 		return fmt.Errorf("save .flintrc: %w", err)
 	}
+
+	// Register this workspace so Forge mode can discover it
+	_ = registry.Register(config.FlintDir(), wd)
 
 	fmt.Printf("\n✓ Flint configured (awareness: %s)\n", cfg.Awareness)
 	fmt.Printf("  Global config: %s/config.json\n", config.FlintDir())
