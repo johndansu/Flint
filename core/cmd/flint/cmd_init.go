@@ -108,7 +108,13 @@ func promptAPIKey(existing string) string {
 		return strings.TrimSpace(line)
 	}
 
-	fmt.Print("Anthropic API key (or set ANTHROPIC_API_KEY): ")
+	fmt.Println()
+	fmt.Println("Flint uses the Anthropic API to generate observations.")
+	fmt.Println("Cost at normal usage: ~$0.002 per observation, ~$0.50/month.")
+	fmt.Println("Flint fires at most 5 observations per coding session — it stays quiet the rest of the time.")
+	fmt.Println("Get a key at https://console.anthropic.com")
+	fmt.Println()
+	fmt.Print("Anthropic API key (or set ANTHROPIC_API_KEY and press Enter): ")
 	line := strings.TrimSpace(readLine())
 	return line
 }
