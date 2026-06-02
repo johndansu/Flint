@@ -303,7 +303,7 @@ func (d *Daemon) handleMessage(clientID string, env ipc.Envelope) {
 		status := schema.DaemonStatus{
 			Awareness:        string(d.cfg.Awareness),
 			HumanLayer:       d.cfg.HumanLayer,
-			ObservationCount: 0, // TODO: read from store
+			ObservationCount: func() int { n, _ := d.db.CountObservations(); return n }(),
 		}
 		if d.cfg.Project != "" {
 			status.Project = &d.cfg.Project

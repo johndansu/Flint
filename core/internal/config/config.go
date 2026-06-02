@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -128,7 +129,8 @@ func Get() *Config {
 	mu.RLock()
 	defer mu.RUnlock()
 	if current == nil {
-		panic("config.Load must be called before config.Get")
+		fmt.Fprintln(os.Stderr, "flint: config.Load must be called before config.Get")
+		os.Exit(1)
 	}
 	return current
 }
