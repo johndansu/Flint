@@ -13,7 +13,7 @@ const binary = path.join(__dirname, `flint${ext}`);
 if (!fs.existsSync(binary)) {
   process.stderr.write(
     `Flint binary not found at ${binary}.\n` +
-    `Try reinstalling: npm install -g @flintlang/cli\n` +
+    `Try reinstalling: npm install -g @johndansu/flint\n` +
     `Or build from source: https://github.com/flintlang/flint\n`
   );
   process.exit(1);

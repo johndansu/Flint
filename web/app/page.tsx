@@ -18,7 +18,7 @@ import {
 } from '@/components/Icons';
 
 const GITHUB  = 'https://github.com/flintlang/flint';
-const NPM_CMD = 'npm install -g @flintlang/cli';
+const NPM_CMD = 'npm install -g @johndansu/flint';
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -776,7 +776,7 @@ function Testimonials() {
 // ── Install ───────────────────────────────────────────────────────────────────
 
 const CLI_STEPS = [
-  { cmd: 'npm install -g @flintlang/cli', comment: '# or: brew install flintlang/tap/flint' },
+  { cmd: 'npm install -g @johndansu/flint', comment: '# or: brew install flintlang/tap/flint' },
   { cmd: 'flint init',                    comment: '# add your Anthropic API key' },
   { cmd: 'flint start',                   comment: '# daemon starts in background' },
 ];
