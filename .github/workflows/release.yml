@@ -120,9 +120,9 @@ jobs:
         with:
           files: extension/*.vsix
 
-      - name: Publish to VS Code Marketplace
+      - name: Publish to Open VSX Registry
         continue-on-error: true
-        run: npx vsce publish --no-dependencies
+        run: npx ovsx publish *.vsix --pat "$OVSX_TOKEN"
         working-directory: extension
         env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
