@@ -39,9 +39,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - Lone wolf signal, second system signal, impostor syndrome patterns
 - 0.85 confidence threshold, 7-day cooldown, 2-week minimum observation window
 
-**New manual tools**
+**New manual tools + REPL**
 - `flint explain` — comprehension assistance for unfamiliar code
 - `flint diff` — plain-English diff explanation with risk analysis
+- `flint repl` — interactive codebase session. Loads context once, maintains conversation in memory, clears on close. No persistence between sessions. Not a chatbot — a focused depth tool.
 - `flint watch` / `flint watch list` / `flint watch remove` — tripwires
 
 **Communication model**

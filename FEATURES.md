@@ -57,6 +57,9 @@ Last N commits in plain English. Format options: slack, email, plain. Audience o
 ### Flint-initiates communication model
 Observation cards with brief follow-up window. Six card types. One follow-up per observation maximum. Then closes.
 
+### Flint REPL — `flint repl`
+Session-based terminal mode. Codebase context loaded once from `flint scan` baseline. Developer asks questions about their codebase in plain language, Flint answers with full context. Brief, focused, time-aware. Each session is fresh — no persistent history between sessions. Not a general AI assistant. Opens for a purpose, closes when done. The bridge between passive observation and active depth.
+
 ### CLI and extension independence
 Full CLI without extension. Manual tools panel without CLI. Better together but fully functional apart. Cross-promotion contextual not timer-based.
 
@@ -81,9 +84,6 @@ State of codebase. Riskiest files. What you left half-done. Yesterday's patterns
 
 ### Tool personalisation
 Usage-based tool reordering per role. Most-used tools surface to top.
-
-### Flint REPL — `flint repl`
-Session-based terminal mode. Codebase context stays loaded. Brief focused sessions. Time-limited. Not an infinite chatbot.
 
 ### `flint pr` — PR review
 Reads PR diff plus codebase context. Senior-dev quality review. Intent analysis. Risk assessment. Needs GitHub/GitLab/Bitbucket API integration.
@@ -201,8 +201,8 @@ Offline-capable license validation. Ed25519 signatures.
 
 | Version | New features | Cumulative |
 |---|---|---|
-| v1 | 24 | 24 |
-| v2 | 17 | 41 |
+| v1 | 25 | 25 |
+| v2 | 16 | 41 |
 | v3 | 14 | 55 |
 | v4 | 12 | 67 |
 

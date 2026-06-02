@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // AwarenessLevel controls how much the daemon watches.
@@ -16,6 +17,54 @@ const (
 	Forge AwarenessLevel = "forge" // watches all projects
 )
 
+// Thresholds holds tunable detection sensitivity values.
+// Zero values mean "use the built-in default".
+type Thresholds struct {
+	BurnoutHours       int `json:"burnoutHours"`       // default 3
+	SpiralEdits        int `json:"spiralEdits"`        // default 10
+	SpiralWindowMins   int `json:"spiralWindowMins"`   // default 30
+	LoneWolfDays       int `json:"loneWolfDays"`       // default 3
+	SessionGapMins     int `json:"sessionGapMins"`     // default 30
+	HumanMaxPerSession int `json:"humanMaxPerSession"` // default 5
+	VibeMaxPerSession  int `json:"vibeMaxPerSession"`  // default 8
+}
+
+// orDefault returns v if > 0, otherwise def.
+func (t Thresholds) orDefault(v, def int) int {
+	if v > 0 {
+		return v
+	}
+	return def
+}
+
+func (t Thresholds) BurnoutDuration() time.Duration {
+	return time.Duration(t.orDefault(t.BurnoutHours, 3)) * time.Hour
+}
+
+func (t Thresholds) SpiralEditsCount() int {
+	return t.orDefault(t.SpiralEdits, 10)
+}
+
+func (t Thresholds) SpiralWindow() time.Duration {
+	return time.Duration(t.orDefault(t.SpiralWindowMins, 30)) * time.Minute
+}
+
+func (t Thresholds) LoneWolfDuration() time.Duration {
+	return time.Duration(t.orDefault(t.LoneWolfDays, 3)) * 24 * time.Hour
+}
+
+func (t Thresholds) SessionGap() time.Duration {
+	return time.Duration(t.orDefault(t.SessionGapMins, 30)) * time.Minute
+}
+
+func (t Thresholds) HumanMax() int {
+	return t.orDefault(t.HumanMaxPerSession, 5)
+}
+
+func (t Thresholds) VibeMax() int {
+	return t.orDefault(t.VibeMaxPerSession, 8)
+}
+
 // Config is the merged view of global (~/.flint/config.json) and
 // workspace-local (.flintrc) settings. Workspace values win.
 type Config struct {
@@ -25,6 +74,7 @@ type Config struct {
 	Model       string         `json:"model"`
 	Project     string         `json:"project"`
 	WorkspaceID string         `json:"workspaceId"`
+	Thresholds  Thresholds     `json:"thresholds"`
 }
 
 const (
@@ -126,6 +176,28 @@ func overlay(dst, src *Config) {
 	}
 	if src.WorkspaceID != "" {
 		dst.WorkspaceID = src.WorkspaceID
+	}
+	// Merge threshold overrides: non-zero local values win
+	if src.Thresholds.BurnoutHours > 0 {
+		dst.Thresholds.BurnoutHours = src.Thresholds.BurnoutHours
+	}
+	if src.Thresholds.SpiralEdits > 0 {
+		dst.Thresholds.SpiralEdits = src.Thresholds.SpiralEdits
+	}
+	if src.Thresholds.SpiralWindowMins > 0 {
+		dst.Thresholds.SpiralWindowMins = src.Thresholds.SpiralWindowMins
+	}
+	if src.Thresholds.LoneWolfDays > 0 {
+		dst.Thresholds.LoneWolfDays = src.Thresholds.LoneWolfDays
+	}
+	if src.Thresholds.SessionGapMins > 0 {
+		dst.Thresholds.SessionGapMins = src.Thresholds.SessionGapMins
+	}
+	if src.Thresholds.HumanMaxPerSession > 0 {
+		dst.Thresholds.HumanMaxPerSession = src.Thresholds.HumanMaxPerSession
+	}
+	if src.Thresholds.VibeMaxPerSession > 0 {
+		dst.Thresholds.VibeMaxPerSession = src.Thresholds.VibeMaxPerSession
 	}
 }
 

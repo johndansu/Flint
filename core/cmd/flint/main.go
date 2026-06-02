@@ -7,6 +7,8 @@ import (
 	"runtime"
 )
 
+var version = "dev" // overridden at build time via -ldflags "-X main.version=..."
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "flint: %v\n", err)
@@ -36,14 +38,36 @@ func run(args []string) error {
 		return cmdDiff(rest)
 	case "fix":
 		return cmdFix(rest)
+	case "start":
+		return cmdStart(rest)
+	case "stop":
+		return cmdStop(rest)
+	case "memory":
+		return cmdMemory(rest)
+	case "diagnose":
+		return cmdDiagnose(rest)
 	case "watch":
 		return cmdWatch(rest)
 	case "update":
 		return cmdUpdate(rest)
-	case "precommit":
+	case "precommit", "check":
 		return cmdPreCommit(rest)
+	case "repl":
+		return cmdRepl(rest)
+	case "unregister":
+		return cmdUnregister(rest)
+	case "errors":
+		return cmdErrors(rest)
+	case "human":
+		return cmdHuman(rest)
+	case "config":
+		return cmdConfig(rest)
+	case "awareness":
+		return cmdAwareness(rest)
+	case "dismiss":
+		return cmdDismiss(rest)
 	case "version", "--version", "-v":
-		fmt.Println("flint v0.1.0")
+		fmt.Printf("flint %s\n", version)
 		return nil
 	case "help", "--help", "-h":
 		printUsage()
@@ -84,11 +108,23 @@ func printUsage() {
 
 USAGE
   flint init                    Set up Flint for this workspace
+  flint start                   Start the background daemon
+  flint stop                    Stop the background daemon
   flint status                  Show daemon and awareness status
   flint scan                    Index codebase, establish baselines
+  flint unregister [path]       Remove workspace from Forge watch list
+  flint repl                    Interactive Q&A about this codebase
   flint explain <file|func>     Explain what something does and why
   flint diff [ref]              Plain-English diff (staged or commit range)
   flint fix [--auto <cat>]      Fix a logged error or enable auto-fix
+  flint errors [--all] [--type] View the error log
+  flint human <on|off|status>   Control the human intelligence layer
+  flint config [key] [value]    Show or set configuration values
+  flint awareness <level>       Set awareness level (spark|flame|forge)
+  flint dismiss <id>            Dismiss observation; optionally raise its threshold
+  flint precommit               Run pre-commit checks (alias: check)
+  flint diagnose                Check environment, daemon, git, deps, and store
+  flint memory [sub] [target]   View or clear stored observations and errors
   flint watch <pattern>         Set a tripwire on a code pattern
   flint update [--format slack] Last N commits as stakeholder update
   flint version                 Print version

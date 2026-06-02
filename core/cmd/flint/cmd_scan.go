@@ -16,6 +16,21 @@ import (
 
 
 
+func cmdUnregister(args []string) error {
+	root := workspaceRoot()
+	if len(args) > 0 {
+		root = args[0]
+	}
+
+	if err := registry.Unregister(config.FlintDir(), root); err != nil {
+		return fmt.Errorf("unregister: %w", err)
+	}
+
+	fmt.Printf("Unregistered %s from Forge workspace list.\n", root)
+	fmt.Println("The daemon will stop watching it on the next 30-second registry sync.")
+	return nil
+}
+
 func cmdScan(args []string) error {
 	cfg, err := config.Load(workspaceRoot())
 	if err != nil {

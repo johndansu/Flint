@@ -821,6 +821,102 @@ func newReviewCmd() *cobra.Command {
 }
 ```
 
+### `flint repl` — interactive codebase session
+
+```go
+// core/cmd/flint/repl.go
+package main
+
+import (
+    "bufio"
+    "fmt"
+    "os"
+    "strings"
+    "github.com/spf13/cobra"
+    "github.com/flint/internal/ai"
+    "github.com/flint/internal/config"
+    "github.com/flint/internal/store"
+)
+
+const replSystemPrompt = `You are Flint, a senior developer embedded in this developer's codebase.
+You have full context of the project loaded below. Answer questions about the codebase directly and specifically.
+Reference actual files, functions, and patterns you can see. Be concise. Senior dev tone.
+This is a focused session — not a general chat. Stay on the codebase.
+
+CODEBASE CONTEXT:
+%s`
+
+func newReplCmd() *cobra.Command {
+    return &cobra.Command{
+        Use:   "repl",
+        Short: "Interactive codebase session — ask anything, Flint knows the context",
+        RunE: func(cmd *cobra.Command, args []string) error {
+            cfg := config.Load()
+            s := store.Open(cfg.FlintDir)
+
+            // Load codebase context from scan baseline
+            ctx := s.GetCodebaseContext(cfg.ProjectPath)
+            if ctx == "" {
+                fmt.Println("No codebase context found. Run `flint scan` first.")
+                return nil
+            }
+
+            systemPrompt := fmt.Sprintf(replSystemPrompt, ctx)
+
+            fmt.Printf("\n  Flint is loaded — %s context ready.\n", cfg.ProjectPath)
+            fmt.Println("  Ask anything about your codebase. Type 'exit' to close.\n")
+
+            // Messages accumulate for this session only
+            // No persistence — session is fresh every time
+            messages := []map[string]string{}
+            scanner := bufio.NewScanner(os.Stdin)
+
+            for {
+                fmt.Print("  › ")
+                if !scanner.Scan() { break }
+
+                input := strings.TrimSpace(scanner.Text())
+                if input == "" { continue }
+                if input == "exit" || input == "quit" || input == "q" {
+                    fmt.Println("\n  Session closed.")
+                    break
+                }
+
+                messages = append(messages, map[string]string{
+                    "role":    "user",
+                    "content": input,
+                })
+
+                fmt.Println()
+                response, err := ai.StreamMessages(cfg.APIKey, systemPrompt, messages, os.Stdout)
+                if err != nil {
+                    fmt.Printf("\n  Error: %v\n", err)
+                    continue
+                }
+                fmt.Println("\n")
+
+                // Append assistant response to maintain context within session
+                messages = append(messages, map[string]string{
+                    "role":    "assistant",
+                    "content": response,
+                })
+
+                // Hard context limit — truncate oldest messages if approaching limit
+                if len(messages) > 20 {
+                    messages = messages[2:] // drop oldest exchange
+                }
+            }
+
+            return nil
+        },
+    }
+}
+```
+
+The REPL loads codebase context once from the scan baseline and maintains a conversation within the session. When the session closes, everything is cleared. No history, no persistence, no state that bleeds into the next session.
+
+The context window limit is enforced by dropping the oldest exchange when the messages array exceeds 20 entries. The developer always has full context of the recent conversation but very old exchanges are dropped silently.
+
 ### CLI cross-promotion engine
 
 ```go
@@ -1200,261 +1296,495 @@ export class StatusBar implements vscode.Disposable {
 }
 ```
 
-### Sidebar provider skeleton
+### Sidebar provider — complete implementation
+
+See `DESIGN.md` for full visual spec. The sidebar renders the ambient overlay alongside the editor. Line glows are applied via VS Code `TextEditorDecorationType`.
+
+```typescript
+// extension/src/decorations.ts
+import * as vscode from 'vscode';
+
+export const Decorations = {
+    technical: vscode.window.createTextEditorDecorationType({
+        backgroundColor: 'rgba(180,150,255,0.08)',
+        borderColor:     'rgba(180,150,255,0.65)',
+        borderWidth:     '0 0 0 2px',
+        borderStyle:     'solid',
+        isWholeLine:     true,
+    }),
+    win: vscode.window.createTextEditorDecorationType({
+        backgroundColor: 'rgba(100,220,130,0.07)',
+        borderColor:     'rgba(100,220,130,0.55)',
+        borderWidth:     '0 0 0 2px',
+        borderStyle:     'solid',
+        isWholeLine:     true,
+    }),
+    human: vscode.window.createTextEditorDecorationType({
+        isWholeLine: true,
+    }),
+};
+
+export function applyGlow(
+    editor: vscode.TextEditor,
+    lineNumbers: number[],
+    kind: 'technical' | 'win' | 'human'
+) {
+    const ranges = lineNumbers.map(n => editor.document.lineAt(n - 1).range);
+    const dec = kind === 'win' ? Decorations.win
+              : kind === 'human' ? Decorations.human
+              : Decorations.technical;
+    editor.setDecorations(dec, ranges);
+}
+
+export function clearAllGlows(editor: vscode.TextEditor) {
+    editor.setDecorations(Decorations.technical, []);
+    editor.setDecorations(Decorations.win, []);
+    editor.setDecorations(Decorations.human, []);
+}
+```
 
 ```typescript
 // extension/src/sidebar/provider.ts
 import * as vscode from 'vscode';
 import { Observation } from '../ipc/messages';
 import { ModeManager } from '../mode';
+import { applyGlow, clearAllGlows } from '../decorations';
+import { getAgentCommand } from '../agent/router';
+
+const COLLAPSE_DELAY_MS = 30_000;
+const NEVER_COLLAPSE = ['precommit', 'auto_fix'];
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
-    private fadeTimer?: NodeJS.Timeout;
+    private collapseTimer?: NodeJS.Timeout;
+    private currentObs?: Observation;
+    private followUpLocked = false;
+    private ipc?: { dismiss(id: string): void };
 
     constructor(
         private context: vscode.ExtensionContext,
         private modeManager: ModeManager
     ) {}
 
+    setIPC(ipc: { dismiss(id: string): void }) {
+        this.ipc = ipc;
+    }
+
     resolveWebviewView(view: vscode.WebviewView) {
         this.view = view;
-        view.webview.options = { enableScripts: true };
-        view.webview.html = this.getQuietStateHtml();
+        const nonce = generateNonce();
+
+        view.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [this.context.extensionUri],
+        };
 
         view.webview.onDidReceiveMessage((msg) => {
-            if (msg.type === 'dismiss') {
-                this.ipc?.dismiss(msg.observationId);
-                this.fadeToQuiet();
-            }
-            if (msg.type === 'copy') {
-                vscode.env.clipboard.writeText(msg.text);
-                this.fadeToQuiet();
-            }
-            if (msg.type === 'send') {
-                this.sendToAgent(msg.prompt);
-                this.fadeToQuiet();
-            }
-            if (msg.type === 'followUp') {
-                this.streamFollowUp(msg.observationId, msg.observationText);
-            }
-            if (msg.type === 'close') {
-                this.fadeToQuiet();
+            switch (msg.type) {
+                case 'dismiss':
+                    this.ipc?.dismiss(msg.observationId);
+                    this.clearObservation();
+                    break;
+                case 'copy':
+                    vscode.env.clipboard.writeText(msg.text);
+                    break;
+                case 'send':
+                    this.sendToAgent(msg.prompt);
+                    break;
+                case 'followUp':
+                    if (!this.followUpLocked) this.streamFollowUp(msg.observationText);
+                    break;
+                case 'close':
+                    this.clearObservation();
+                    break;
+                case 'expand':
+                    if (this.currentObs) this.showObservation(this.currentObs, true);
+                    break;
             }
         });
+
+        view.webview.html = this.buildHtml(nonce);
+        view.webview.postMessage({ type: 'quiet' });
     }
 
-    showObservation(obs: Observation) {
+    showObservation(obs: Observation, skipAnimation = false) {
         if (!this.view) return;
         if (!this.modeManager.isPassiveIntelligenceAvailable()) return;
-        clearTimeout(this.fadeTimer);
-        this.view.webview.html = this.getObservationHtml(obs);
-        const fadeMs = obs.kind === 'win' ? 5000 : 8000;
-        this.fadeTimer = setTimeout(() => this.fadeToQuiet(), fadeMs);
-    }
 
-    private async streamFollowUp(observationId: string, observationText: string) {
-        if (!this.view) return;
-        clearTimeout(this.fadeTimer);
-        this.view.webview.postMessage({ type: 'followUpLoading' });
+        this.currentObs = obs;
+        this.followUpLocked = false;
+        clearTimeout(this.collapseTimer);
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 200,
-                system: 'You are Flint, a senior developer. Give one focused follow-up in under 150 words. Be specific, concrete, direct. Senior dev tone. No preamble.',
-                messages: [{ role: 'user', content: `Observation: ${observationText}\n\nMore detail please.` }],
-                stream: true
-            })
+        // Apply line glow if observation has a line number
+        const editor = vscode.window.activeTextEditor;
+        if (editor && obs.lineNumber) {
+            const lines = [obs.lineNumber];
+            applyGlow(editor, lines, obs.kind as 'technical' | 'win' | 'human');
+        }
+
+        // Send observation to webview
+        this.view.webview.postMessage({
+            type: 'show',
+            obs,
+            skipAnimation,
         });
 
-        const reader = response.body?.getReader();
-        if (!reader) return;
-        let done = false;
-        while (!done) {
-            const { value, done: d } = await reader.read();
-            done = d;
-            if (value) {
-                this.view.webview.postMessage({
-                    type: 'followUpChunk',
-                    text: new TextDecoder().decode(value)
-                });
-            }
+        // Schedule collapse (except pre-commit and auto-fix)
+        if (!NEVER_COLLAPSE.includes(obs.category)) {
+            this.collapseTimer = setTimeout(() => {
+                this.view?.webview.postMessage({ type: 'collapse' });
+            }, COLLAPSE_DELAY_MS);
         }
+    }
+
+    private clearObservation() {
+        clearTimeout(this.collapseTimer);
+        this.currentObs = undefined;
+        this.followUpLocked = false;
+        this.view?.webview.postMessage({ type: 'quiet' });
+
+        const editor = vscode.window.activeTextEditor;
+        if (editor) clearAllGlows(editor);
+    }
+
+    private async streamFollowUp(observationText: string) {
+        if (!this.view) return;
+        clearTimeout(this.collapseTimer); // don't collapse while follow-up is open
+
+        this.view.webview.postMessage({ type: 'followUpStart' });
+
+        try {
+            const apiKey = await this.getAPIKey();
+            const response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                },
+                body: JSON.stringify({
+                    model: 'claude-sonnet-4-20250514',
+                    max_tokens: 200,
+                    stream: true,
+                    system: 'You are Flint, a senior developer. Give one focused follow-up in under 150 words. Specific, concrete, direct. Senior dev tone. No preamble.',
+                    messages: [{ role: 'user', content: `Observation: ${observationText}\n\nMore detail.` }],
+                }),
+            });
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('No response body');
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6);
+                    if (data === '[DONE]') continue;
+                    try {
+                        const event = JSON.parse(data);
+                        if (event.type === 'content_block_delta') {
+                            const text = event.delta?.text ?? '';
+                            if (text) this.view?.webview.postMessage({ type: 'followUpChunk', text });
+                        }
+                    } catch {}
+                }
+            }
+        } catch (err) {
+            this.view.webview.postMessage({ type: 'followUpError' });
+            return;
+        }
+
+        this.followUpLocked = true;
         this.view.webview.postMessage({ type: 'followUpDone' });
     }
 
-    private fadeToQuiet() {
-        if (this.view) this.view.webview.html = this.getQuietStateHtml();
+    private async getAPIKey(): Promise<string> {
+        // Read from config — stored in ~/.flint/config.json
+        // In future: read from VS Code SecretStorage
+        const cfg = vscode.workspace.getConfiguration('flint');
+        const key = cfg.get<string>('apiKey');
+        if (!key) throw new Error('No API key configured. Run: flint config');
+        return key;
     }
 
     private sendToAgent(prompt: string) {
-        vscode.commands.executeCommand('cursor.chat', prompt);
+        const cfg = vscode.workspace.getConfiguration('flint');
+        const agent = cfg.get<string>('agent') ?? 'cursor';
+        const cmd = getAgentCommand(agent, prompt);
+        if (cmd) vscode.commands.executeCommand(cmd, prompt);
+        else vscode.env.clipboard.writeText(prompt);
     }
 
-    private getQuietStateHtml(): string {
-        return `<!DOCTYPE html><html><body style="margin:0;padding:0;">
-          <div style="width:4px;height:100vh;background:var(--flint-accent);"></div>
-        </body></html>`;
-    }
+    private buildHtml(nonce: string): string {
+        // Full overlay HTML — see extension/src/sidebar/overlay.html
+        // Inline here for reference; in production load from file
+        return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+  content="default-src 'none';
+           style-src 'nonce-${nonce}';
+           script-src 'nonce-${nonce}';
+           connect-src https://api.anthropic.com;">
+<style nonce="${nonce}">
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: transparent; font-family: var(--vscode-font-family); }
 
-    private getObservationHtml(obs: Observation): string {
-        // Full card HTML with correct actions per card type — see PRD section 6
-        return `<!-- card HTML here -->`;
-    }
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(16,17,28,0.96);
+    backdrop-filter: blur(16px);
+    border-left: 1px solid var(--flint-border);
+    padding: 16px 15px 13px;
+    display: flex; flex-direction: column; gap: 11px;
+    transform: translateX(100%); opacity: 0;
+    transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), opacity 0.22s;
+  }
+  .overlay.visible { transform: translateX(0); opacity: 1; }
 
-    private ipc: any; // injected by extension entry point
+  .collapsed {
+    position: fixed; inset: 0; width: 28px; left: auto;
+    background: rgba(16,17,28,0.85);
+    border-left: 1px solid var(--flint-border-muted);
+    display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px;
+    cursor: pointer;
+  }
+  .collapsed.visible { display: flex; }
+
+  .ind-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--flint-accent); }
+  .ind-line { width: 1.5px; height: 18px; background: var(--flint-border-muted); border-radius: 1px; }
+
+  .fl-tag { font-size: 9px; letter-spacing: 0.12em; color: var(--flint-tag); }
+  .obs-text { font-size: 11.5px; line-height: 1.65; color: rgba(205,215,245,0.9); }
+  .agent-block {
+    background: rgba(122,162,247,0.06);
+    border-left: 1.5px solid rgba(122,162,247,0.25);
+    border-radius: 5px; padding: 8px 10px;
+  }
+  .agent-text { font-family: monospace; font-size: 9.5px; color: rgba(122,162,247,0.72); line-height: 1.55; }
+  .actions { display: flex; align-items: center; gap: 6px; }
+  .btn { font-size: 10px; padding: 4px 9px; border-radius: 4px; cursor: pointer; background: transparent; }
+  .btn-ghost { border: 0.5px solid rgba(255,255,255,0.12); color: rgba(200,210,240,0.6); }
+  .btn-send { border: 0.5px solid var(--flint-border); color: var(--flint-accent); background: var(--flint-bg); }
+  .btn-more { border: none; color: rgba(122,162,247,0.5); padding: 4px 0; text-decoration: underline; text-underline-offset: 2px; margin-left: auto; }
+  .btn-x { border: none; color: rgba(255,255,255,0.18); padding: 4px 6px; }
+  .follow-up-body { font-size: 11.5px; line-height: 1.65; color: rgba(205,215,245,0.85); }
+  .subtle { font-size: 10px; color: rgba(255,255,255,0.18); }
+
+  /* Colour variables set by JS based on obs.kind */
+  .kind-technical { --flint-border: rgba(180,150,255,0.18); --flint-border-muted: rgba(180,150,255,0.12); --flint-accent: rgba(180,150,255,0.9); --flint-tag: rgba(180,150,255,0.45); --flint-bg: rgba(180,150,255,0.09); }
+  .kind-win       { --flint-border: rgba(100,220,130,0.18); --flint-border-muted: rgba(100,220,130,0.12); --flint-accent: rgba(100,220,130,0.9); --flint-tag: rgba(100,220,130,0.38); --flint-bg: rgba(100,220,130,0.08); }
+  .kind-human     { --flint-border: rgba(255,200,80,0.15);  --flint-border-muted: rgba(255,200,80,0.10);  --flint-accent: rgba(255,200,80,0.8);  --flint-tag: rgba(255,200,80,0.38);  --flint-bg: rgba(255,200,80,0.08); }
+</style>
+</head>
+<body>
+
+<div class="overlay" id="overlay">
+  <div><div class="fl-tag" id="tag">flint</div></div>
+  <div class="obs-text" id="obs-text"></div>
+  <div class="agent-block" id="agent-block" style="display:none">
+    <div class="agent-text" id="agent-text"></div>
+  </div>
+  <div id="follow-up-area" style="display:none">
+    <div class="follow-up-body" id="follow-up-body"></div>
+  </div>
+  <div class="actions" id="actions" style="display:none">
+    <button class="btn btn-ghost" onclick="copy()">Copy</button>
+    <button class="btn btn-send" id="send-btn" onclick="send()">Send →</button>
+    <button class="btn-more btn" id="more-btn" onclick="more()">tell me more</button>
+    <button class="btn-x btn" onclick="dismiss()">✕</button>
+  </div>
+  <div id="win-footer" class="subtle" style="display:none">shrinks in 30s</div>
+</div>
+
+<div class="collapsed" id="collapsed" onclick="expand()">
+  <div class="ind-dot"></div>
+  <div class="ind-line"></div>
+</div>
+
+<script nonce="${nonce}">
+  const vscode = acquireVsCodeApi();
+  let obsId = null;
+  let agentPrompt = null;
+  let followUpDone = false;
+
+  window.addEventListener('message', ({ data }) => {
+    switch (data.type) {
+      case 'quiet':    setQuiet(); break;
+      case 'show':     showObs(data.obs, data.skipAnimation); break;
+      case 'collapse': collapse(); break;
+      case 'followUpStart': startFollowUp(); break;
+      case 'followUpChunk': appendFollowUp(data.text); break;
+      case 'followUpDone':  lockFollowUp(); break;
+      case 'followUpError': showFollowUpError(); break;
+    }
+  });
+
+  function setQuiet() {
+    document.getElementById('overlay').className = 'overlay';
+    document.getElementById('collapsed').className = 'collapsed';
+  }
+
+  function showObs(obs, skipAnimation) {
+    obsId = obs.id;
+    agentPrompt = obs.agentPrompt;
+    followUpDone = false;
+
+    const overlay = document.getElementById('overlay');
+    overlay.className = 'overlay kind-' + (obs.kind || 'technical');
+
+    document.getElementById('obs-text').textContent = obs.text;
+
+    const hasAgent = agentPrompt && (obs.kind === 'technical' || obs.kind === 'vibe');
+    const agentBlock = document.getElementById('agent-block');
+    const actions = document.getElementById('actions');
+    const moreBtn = document.getElementById('more-btn');
+    const winFooter = document.getElementById('win-footer');
+    const followUpArea = document.getElementById('follow-up-area');
+    const sendBtn = document.getElementById('send-btn');
+
+    agentBlock.style.display = hasAgent ? 'block' : 'none';
+    if (hasAgent) document.getElementById('agent-text').textContent = agentPrompt;
+
+    const hasActions = obs.kind !== 'win' && obs.kind !== 'human';
+    actions.style.display = hasActions ? 'flex' : 'none';
+
+    const hasMore = ['technical','vibe','question','taste'].includes(obs.kind);
+    moreBtn.style.display = hasMore ? 'inline' : 'none';
+
+    winFooter.style.display = (obs.kind === 'win' || obs.kind === 'human') ? 'block' : 'none';
+    followUpArea.style.display = 'none';
+    document.getElementById('follow-up-body').textContent = '';
+
+    const agentName = (obs.agentName || 'Cursor');
+    sendBtn.textContent = 'Send to ' + agentName + ' →';
+
+    document.getElementById('collapsed').className = 'collapsed';
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+  }
+
+  function collapse() {
+    document.getElementById('overlay').className = 'overlay kind-' +
+      (document.getElementById('overlay').classList[1] || 'technical');
+    document.getElementById('collapsed').className = 'collapsed visible';
+  }
+
+  function expand() {
+    vscode.postMessage({ type: 'expand' });
+  }
+
+  function startFollowUp() {
+    document.getElementById('more-btn').style.display = 'none';
+    document.getElementById('follow-up-area').style.display = 'block';
+    document.getElementById('follow-up-body').textContent = '…';
+  }
+
+  function appendFollowUp(text) {
+    const el = document.getElementById('follow-up-body');
+    if (el.textContent === '…') el.textContent = '';
+    el.textContent += text;
+  }
+
+  function lockFollowUp() {
+    document.getElementById('more-btn').style.display = 'none';
+  }
+
+  function showFollowUpError() {
+    document.getElementById('follow-up-body').textContent = 'Something went wrong.';
+  }
+
+  function dismiss() { vscode.postMessage({ type: 'dismiss', observationId: obsId }); }
+  function copy()    { vscode.postMessage({ type: 'copy', text: agentPrompt }); }
+  function send()    { vscode.postMessage({ type: 'send', prompt: agentPrompt }); }
+  function more()    {
+    if (followUpDone) return;
+    vscode.postMessage({ type: 'followUp', observationText: document.getElementById('obs-text').textContent });
+  }
+</script>
+</body></html>`;
+    }
+}
+
+function generateNonce(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    return Array.from({ length: 32 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 ```
 
-
-
 ```typescript
-// extension/src/sidebar/provider.ts
-import * as vscode from 'vscode';
-import { Observation } from '../ipc/messages';
+// extension/src/agent/router.ts
+export function getAgentCommand(agent: string, prompt: string): string | null {
+    const commands: Record<string, string> = {
+        cursor:      'cursor.chat',
+        antigravity: 'antigravity.sendToChat',
+        windsurf:    'windsurf.sendToChat',
+        copilot:     'github.copilot.interactiveEditor.explain',
+    };
+    return commands[agent] ?? null; // null = copy to clipboard fallback
+}
+```
 
-export class SidebarProvider implements vscode.WebviewViewProvider {
-    private view?: vscode.WebviewView;
-    private fadeTimer?: NodeJS.Timeout;
-
-    constructor(private context: vscode.ExtensionContext) {}
-
-    resolveWebviewView(view: vscode.WebviewView) {
-        this.view = view;
-        view.webview.options = { enableScripts: true };
-        view.webview.html = this.getQuietStateHtml();
-
-    resolveWebviewView(view: vscode.WebviewView) {
-        this.view = view;
-        view.webview.options = { enableScripts: true };
-        view.webview.html = this.getQuietStateHtml();
-
-        view.webview.onDidReceiveMessage((msg) => {
-            if (msg.type === 'dismiss') {
-                this.ipc.dismiss(msg.observationId);
-                this.fadeToQuiet();
-            }
-            if (msg.type === 'copy') {
-                vscode.env.clipboard.writeText(msg.text);
-                this.fadeToQuiet();
-            }
-            if (msg.type === 'send') {
-                this.sendToAgent(msg.prompt);
-                this.fadeToQuiet();
-            }
-            if (msg.type === 'followUp') {
-                this.streamFollowUp(msg.observationId, msg.observationText);
-            }
-            if (msg.type === 'close') {
-                this.fadeToQuiet();
-            }
-        });
+```json
+// extension/package.json (key fields)
+{
+  "name": "flint",
+  "displayName": "Flint",
+  "description": "Passive technical and human intelligence for developers",
+  "version": "1.0.0",
+  "publisher": "flint-dev",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{
+        "id": "flint",
+        "title": "Flint",
+        "icon": "media/icon.svg"
+      }]
+    },
+    "views": {
+      "flint": [
+        { "type": "webview", "id": "flint.sidebar", "name": "Flint" }
+      ]
+    },
+    "commands": [
+      { "command": "flint.openPanel",       "title": "Flint: Open Panel" },
+      { "command": "flint.changeAwareness", "title": "Flint: Change Awareness" },
+      { "command": "flint.changeRole",      "title": "Flint: Change Role" },
+      { "command": "flint.memory",          "title": "Flint: View Memory" },
+      { "command": "flint.clearMemory",     "title": "Flint: Clear Memory" }
+    ],
+    "configuration": {
+      "title": "Flint",
+      "properties": {
+        "flint.apiKey":    { "type": "string",  "description": "Anthropic API key" },
+        "flint.agent":     { "type": "string",  "default": "cursor", "enum": ["cursor","antigravity","windsurf","copilot","custom","none"] },
+        "flint.awareness": { "type": "string",  "default": "flame",  "enum": ["spark","flame","forge"] },
+        "flint.role":      { "type": "string",  "default": "webdev" },
+        "flint.noNudge":   { "type": "boolean", "default": false }
+      }
     }
-
-    private async streamFollowUp(observationId: string, observationText: string) {
-        if (!this.view) return;
-        clearTimeout(this.fadeTimer);
-
-        // Show loading state
-        this.view.webview.postMessage({ type: 'followUpLoading' });
-
-        // Stream follow-up from Anthropic API
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                model: 'claude-sonnet-4-20250514',
-                max_tokens: 200,
-                system: 'You are Flint, a senior developer. Give one focused follow-up to this observation in under 150 words. Be specific, concrete, and direct. Senior dev tone. No preamble.',
-                messages: [{ role: 'user', content: `Original observation: ${observationText}\n\nGive me more detail.` }],
-                stream: true
-            })
-        });
-
-        // Stream tokens to webview
-        const reader = response.body?.getReader();
-        if (!reader) return;
-        let done = false;
-        while (!done) {
-            const { value, done: d } = await reader.read();
-            done = d;
-            if (value) {
-                const text = new TextDecoder().decode(value);
-                this.view.webview.postMessage({ type: 'followUpChunk', text });
-            }
-        }
-
-        // Lock the card — no further follow-up possible
-        this.view.webview.postMessage({ type: 'followUpDone' });
-    }
-    }
-
-    showObservation(obs: Observation) {
-        if (!this.view) return;
-        clearTimeout(this.fadeTimer);
-        this.view.webview.html = this.getObservationHtml(obs);
-        this.fadeTimer = setTimeout(() => this.fadeToQuiet(), 8000);
-    }
-
-    private fadeToQuiet() {
-        if (this.view) {
-            this.view.webview.html = this.getQuietStateHtml();
-        }
-    }
-
-    private sendToAgent(prompt: string) {
-        // Agent-specific send logic
-        vscode.commands.executeCommand('cursor.chat', prompt);
-    }
-
-    private getQuietStateHtml(): string {
-        return `<!DOCTYPE html>
-        <html><body style="margin:0;padding:0;">
-          <div style="width:4px;height:100vh;background:var(--flint-accent);"></div>
-        </body></html>`;
-    }
-
-    private getObservationHtml(obs: Observation): string {
-        const hasPrompt = obs.agentPrompt && obs.kind === 'technical';
-        return `<!DOCTYPE html>
-        <html>
-        <head><style>
-          body { font-family: var(--vscode-font-family); padding: 12px; }
-          .text { font-size: 13px; line-height: 1.6; margin-bottom: 12px; }
-          .prompt { font-size: 12px; color: var(--vscode-descriptionForeground);
-                    border-top: 1px solid var(--vscode-widget-border);
-                    padding-top: 10px; margin-bottom: 10px; }
-          .actions { display: flex; gap: 8px; }
-          button { padding: 4px 12px; font-size: 12px; cursor: pointer; }
-          .dismiss { position: absolute; top: 8px; right: 8px;
-                     background: none; border: none; cursor: pointer; }
-        </style></head>
-        <body>
-          <button class="dismiss" onclick="dismiss()">✕</button>
-          <div class="text">${obs.text}</div>
-          ${hasPrompt ? `
-          <div class="prompt">${obs.agentPrompt}</div>
-          <div class="actions">
-            <button onclick="copy()">Copy</button>
-            <button onclick="send()">Send to Cursor</button>
-          </div>` : ''}
-          <script>
-            const vscode = acquireVsCodeApi();
-            function dismiss() { vscode.postMessage({ type: 'dismiss', observationId: '${obs.id}' }); }
-            function copy() { vscode.postMessage({ type: 'copy', text: \`${obs.agentPrompt}\` }); }
-            function send() { vscode.postMessage({ type: 'send', prompt: \`${obs.agentPrompt}\` }); }
-          </script>
-        </body></html>`;
-    }
+  }
 }
 ```
 
 ---
 
 ## 8. npm Wrapper Architecture
+
 
 ```javascript
 // wrapper/install.js — runs on npm install

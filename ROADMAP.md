@@ -247,6 +247,15 @@ Two foundational features that work without the passive daemon.
 - Print structured report
 - Return exit code 0 (always advisory, never blocking)
 
+**`core/cmd/flint/repl.go`** — `flint repl`
+- Load codebase context from scan baseline on session open
+- Maintain messages array in memory for session duration
+- Stream responses with full context
+- Hard context window limit (drop oldest exchange at 20 messages)
+- `exit` / Ctrl+C closes session, clears all memory
+- No persistence between sessions — always starts fresh
+- Session header shows project path, awareness level, context loaded
+
 **Git hook installer** in `flint init`
 - Write `.git/hooks/pre-commit` that calls `flint check`
 - Make executable
@@ -780,7 +789,7 @@ The roadmap is not a schedule. It is an order. Some phases will take longer than
 ```
 Phase 1  → The Contract (schema, tools, footguns)
 Phase 2  → Go Core Foundation
-Phase 3  → CLI Foundation (Spark)
+Phase 3  → CLI Foundation (Spark) + flint repl
 Phase 4  → Error Log + Auto-Fix
 Phase 5  → Pre-Commit + flint scan
 Phase 6  → Daemon Core

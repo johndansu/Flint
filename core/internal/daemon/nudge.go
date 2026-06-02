@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -34,10 +36,11 @@ type ObserveFn func(ctx context.Context, filePath, sessionType string)
 // NudgeEngine applies time-gating to potential observations.
 // It ensures Flint speaks up at the right moment — not constantly.
 type NudgeEngine struct {
-	cfg     *config.Config
-	db      *store.DB
-	server  *ipc.Server
-	observe ObserveFn // called when gates pass; nil means gate-only mode
+	cfg        *config.Config
+	db         *store.DB
+	server     *ipc.Server
+	observe    ObserveFn  // called when gates pass; nil means gate-only mode
+	onNewSess  func()     // optional hook called when a new session boundary is detected
 
 	mu          sync.Mutex
 	lastChange  time.Time
@@ -110,6 +113,11 @@ func (n *NudgeEngine) newSessionLocked() {
 	}
 	n.obsThisSess = 0
 	log.Printf("nudge: new session (30-min inactivity gap)")
+
+	// Notify the human layer so it resets the burnout clock
+	if n.onNewSess != nil {
+		go n.onNewSess()
+	}
 }
 
 // maybeObserve fires an observation if all time gates pass.
@@ -139,6 +147,12 @@ func (n *NudgeEngine) maybeObserve(ctx context.Context, triggerPath string) {
 
 	// Per-session cap
 	if n.obsThisSess >= n.maxLocked() {
+		n.mu.Unlock()
+		return
+	}
+
+	// REPL suppression: don't interrupt an active REPL conversation
+	if _, err := os.Stat(filepath.Join(config.FlintDir(), "repl.lock")); err == nil {
 		n.mu.Unlock()
 		return
 	}

@@ -10,6 +10,7 @@ const vscodeApi = (() => {
 
 export class FlintStatusBar {
   private item: StatusBarItem | null = null;
+  private obsCount = 0;
 
   constructor() {
     if (!vscodeApi) return;
@@ -41,9 +42,23 @@ export class FlintStatusBar {
     this.update('$(circle-slash) Flint', 'Flint daemon not running — click to start');
   }
 
-  setObservation(count: number): void {
-    const label = count === 1 ? '1 observation' : `${count} observations`;
-    this.update(`$(flame) Flint  ${count}`, `Flint — ${label} pending`);
+  incrementObservations(): void {
+    this.obsCount++;
+    this.updateObsBadge();
+  }
+
+  decrementObservations(): void {
+    this.obsCount = Math.max(0, this.obsCount - 1);
+    this.updateObsBadge();
+  }
+
+  private updateObsBadge(): void {
+    if (this.obsCount === 0) {
+      this.setIdle();
+    } else {
+      const label = this.obsCount === 1 ? '1 observation' : `${this.obsCount} observations`;
+      this.update(`$(flame) Flint  ${this.obsCount}`, `Flint — ${label} pending`);
+    }
   }
 
   onConnectionChange(state: ConnectionState, awareness?: string): void {

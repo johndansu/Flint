@@ -105,8 +105,12 @@ export class DaemonConnection {
     }
   }
 
+  // Optional hook — called whenever the connection state changes.
+  onStateChange?: (state: ConnectionState) => void;
+
   private setState(s: ConnectionState): void {
     this.state = s;
+    this.onStateChange?.(s);
   }
 }
 

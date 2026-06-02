@@ -24,6 +24,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Test
+        run: go test -race -count=1 ./...
+
   typescript:
     name: TypeScript typecheck
     runs-on: ubuntu-latest
@@ -43,6 +46,30 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
         working-directory: extension
+
+  web:
+    name: Landing page typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+        working-directory: web
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+        working-directory: web
+
+      - name: Build
+        run: npm run build
+        working-directory: web
 
   schema:
     name: Schema codegen is current

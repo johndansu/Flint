@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"strings"
 	"time"
 )
 
 const (
-	apiURL          = "https://api.anthropic.com/v1/messages"
+	apiURL           = "https://api.anthropic.com/v1/messages"
 	anthropicVersion = "2023-06-01"
-	maxTokens       = 4096
+	maxTokens        = 4096
+	maxRetries       = 3
 )
 
 // Client calls the Anthropic Messages API directly over HTTP.
@@ -50,14 +52,9 @@ func (c *Client) Complete(ctx context.Context, system string, messages []Message
 		return "", err
 	}
 
-	req, err := c.newRequest(ctx, body)
+	resp, err := c.doWithRetry(ctx, body)
 	if err != nil {
 		return "", err
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("ai: request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -88,14 +85,9 @@ func (c *Client) Stream(ctx context.Context, system string, messages []Message, 
 		return "", err
 	}
 
-	req, err := c.newRequest(ctx, body)
+	resp, err := c.doWithRetry(ctx, body)
 	if err != nil {
 		return "", err
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("ai: stream request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -141,6 +133,67 @@ func (c *Client) Stream(ctx context.Context, system string, messages []Message, 
 		return sb.String(), fmt.Errorf("ai: stream read: %w", err)
 	}
 	return sb.String(), nil
+}
+
+// ---------------------------------------------------------------------------
+// Retry with exponential backoff
+// ---------------------------------------------------------------------------
+
+// doWithRetry executes the API request with up to maxRetries retries on
+// transient network errors and retryable HTTP status codes (429, 5xx).
+// Non-retryable errors (400, 401, 403) are returned immediately.
+func (c *Client) doWithRetry(ctx context.Context, body []byte) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			delay := backoffDelay(attempt)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		req, err := c.newRequest(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			lastErr = fmt.Errorf("ai: request: %w", err)
+			continue // network error — retry
+		}
+
+		if isRetryable(resp.StatusCode) {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("ai: HTTP %d", resp.StatusCode)
+			continue
+		}
+
+		return resp, nil // success or non-retryable HTTP error
+	}
+	return nil, fmt.Errorf("%w (after %d retries)", lastErr, maxRetries)
+}
+
+// isRetryable returns true for HTTP status codes that are safe to retry.
+func isRetryable(code int) bool {
+	switch code {
+	case 429, 500, 502, 503, 504, 529:
+		return true
+	}
+	return false
+}
+
+// backoffDelay returns the wait time before attempt N (1-based).
+// Schedule: 1s, 2s, 4s — each with ±20% random jitter.
+func backoffDelay(attempt int) time.Duration {
+	base := time.Duration(1<<uint(attempt-1)) * time.Second
+	jitter := time.Duration(rand.Int63n(int64(base / 5)))
+	return base + jitter
 }
 
 // ---------------------------------------------------------------------------

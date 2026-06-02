@@ -133,14 +133,14 @@ func fixError(id int64, cfg *config.Config, db *store.DB) error {
 Output ONLY the corrected file content — the complete file, all lines, with the minimal change needed to fix the error.
 No explanation. No markdown fences. No leading "Here is" or trailing notes. Just the file.`
 
-	fmt.Printf("Generating fix for %s…\n\n", e.FilePath)
+	fmt.Printf("Generating fix for %s", e.FilePath)
 
 	var fixed strings.Builder
 	_, err = client.Stream(context.Background(), systemPrompt,
 		[]ai.Message{{Role: "user", Content: sb.String()}},
 		func(delta string) {
-			fmt.Print(delta)
 			fixed.WriteString(delta)
+			fmt.Print(".")
 		},
 	)
 	fmt.Println()
@@ -153,6 +153,41 @@ No explanation. No markdown fences. No leading "Here is" or trailing notes. Just
 		return fmt.Errorf("AI returned empty response")
 	}
 
+	// Write proposed fix to a temp file so we can diff without touching the original
+	tmp, err := os.CreateTemp("", "flint-fix-*")
+	if err != nil {
+		return fmt.Errorf("temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.WriteString(fixedContent); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp: %w", err)
+	}
+	tmp.Close()
+
+	// Show a colored diff — replace the temp path with the real file path so
+	// the output is readable. git diff --no-index exits 1 when there are
+	// differences, so we ignore the error and check the output directly.
+	fmt.Printf("\nProposed changes to %s:\n%s\n", e.FilePath, separator())
+	diffBytes, _ := exec.Command("git", "diff", "--no-index", "--color=always", e.FilePath, tmpPath).Output()
+	diffOut := strings.ReplaceAll(string(diffBytes), tmpPath, e.FilePath)
+	if strings.TrimSpace(diffOut) == "" {
+		fmt.Println("  (no changes — AI returned identical content)")
+		return nil
+	}
+	fmt.Print(diffOut)
+	fmt.Println(separator())
+
+	fmt.Print("Apply this fix? [Y/n]: ")
+	answer := readLine()
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer != "" && answer != "y" && answer != "yes" {
+		fmt.Println("Discarded.")
+		return nil
+	}
+
 	if err := os.WriteFile(e.FilePath, []byte(fixedContent), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", e.FilePath, err)
 	}
@@ -160,7 +195,8 @@ No explanation. No markdown fences. No leading "Here is" or trailing notes. Just
 	if out, err := exec.Command("git", "add", e.FilePath).CombinedOutput(); err != nil {
 		fmt.Printf("Warning: git add failed: %s\n", strings.TrimSpace(string(out)))
 	} else {
-		fmt.Printf("\n✓ Staged. Review with 'git diff --cached' before committing.\n\n")
+		fmt.Println("Applied and staged. Review with 'git diff --cached' before committing.")
+		fmt.Println()
 	}
 
 	return nil

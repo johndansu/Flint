@@ -85,7 +85,7 @@ func daemonStatus(cfg *config.Config) string {
 	socketPath := ipc.SocketPath(config.FlintDir(), workspaceRoot())
 	conn, err := net.DialTimeout("unix", socketPath, 200*time.Millisecond)
 	if err != nil {
-		return "not running  (start with 'flintd')"
+		return "not running  (start with 'flint start')"
 	}
 	conn.Close()
 	return "running"

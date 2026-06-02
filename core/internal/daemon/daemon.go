@@ -30,6 +30,9 @@ type Daemon struct {
 	nudge      *NudgeEngine
 	pipeline   *Pipeline
 	classifier *Classifier
+	human      *HumanLayer // nil when humanLayer is disabled in config
+	deps       *DepMonitor
+	git        *GitMonitor
 
 	workspaceRoot string
 
@@ -76,6 +79,18 @@ func New(cfg *config.Config, db *store.DB, socketPath, sharedDir, workspaceRoot 
 		d.pipeline.Run(ctx, filePath, sessionType)
 	})
 
+	// Human layer — opt-in via config
+	if cfg.HumanLayer {
+		d.human = NewHumanLayer(d.server, db, workspaceRoot, cfg.Thresholds)
+		d.nudge.onNewSess = d.human.OnNewSession
+	}
+
+	// Dependency CVE monitor — always active
+	d.deps = NewDepMonitor(d.server, db, el, workspaceRoot)
+
+	// Git health monitor — always active
+	d.git = NewGitMonitor(d.server, db, workspaceRoot)
+
 	return d, nil
 }
 
@@ -105,6 +120,17 @@ func (d *Daemon) Run(ctx context.Context, workspaceRoot string) error {
 		defer d.wg.Done()
 		d.eventLoop(ctx)
 	}()
+
+	// Start human-layer background checks (lone wolf runs on a 1-hour ticker)
+	if d.human != nil {
+		d.human.RunLoneWolfCheck(ctx)
+	}
+
+	// Start dependency CVE monitor (checks on startup if > 7 days, then weekly)
+	d.deps.Run(ctx)
+
+	// Start git health monitor (checks immediately, then every 30 min)
+	d.git.Run(ctx)
 
 	log.Printf("flintd: watching %s (awareness: %s)", workspaceRoot, d.cfg.Awareness)
 
@@ -173,6 +199,11 @@ func (d *Daemon) onFileEvent(ctx context.Context, event FileEvent) {
 		}
 	}
 
+	// Human layer: track per-file edits for spiral detection
+	if d.human != nil {
+		d.human.OnFileEvent(event)
+	}
+
 	// Update rolling signal accumulators for the classifier
 	d.updateSignals(event)
 
@@ -233,6 +264,11 @@ func (d *Daemon) updateSignals(event FileEvent) {
 		SessionType: string(sessionType),
 		Since:       since,
 	})
+
+	// Human layer: check burnout threshold every classification cycle
+	if d.human != nil {
+		d.human.CheckBurnout()
+	}
 
 	// Blend this cycle's measurements into the persisted behavior baseline
 	d.updateBehaviorBaseline(sig.WriteIntervalMs, sig.SavesPerMinute, sig.BurstSize)

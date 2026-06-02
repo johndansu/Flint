@@ -344,6 +344,237 @@ func (d *DB) CountObservations() (int, error) {
 	return n, err
 }
 
+// GetObservationByPrefix finds the observation whose ID starts with prefix.
+// Returns an error if zero or more than one match is found.
+func (d *DB) GetObservationByPrefix(prefix string) (*Observation, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, kind, category, confidence, text, file_path, line_number, session_type, timestamp
+		FROM observations WHERE id LIKE ? LIMIT 2`, prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var matches []Observation
+	for rows.Next() {
+		var o Observation
+		var fp, st, ts sql.NullString
+		var ln sql.NullInt64
+		if err := rows.Scan(&o.ID, &o.Kind, &o.Category, &o.Confidence, &o.Text, &fp, &ln, &st, &ts); err != nil {
+			return nil, err
+		}
+		if fp.Valid {
+			o.FilePath = fp.String
+		}
+		if ln.Valid {
+			o.LineNumber = int(ln.Int64)
+		}
+		if st.Valid {
+			o.SessionType = st.String
+		}
+		if ts.Valid {
+			o.Timestamp, _ = time.Parse(time.RFC3339, ts.String)
+		}
+		matches = append(matches, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	switch len(matches) {
+	case 0:
+		return nil, fmt.Errorf("no observation with ID prefix %q", prefix)
+	case 1:
+		return &matches[0], nil
+	default:
+		return nil, fmt.Errorf("ambiguous prefix %q — be more specific", prefix)
+	}
+}
+
+// InsertDismissal records a dismiss or calibrate action for an observation.
+// action should be "dismissed" or "calibrated".
+func (d *DB) InsertDismissal(observationID, action string) error {
+	_, err := d.sql.Exec(`
+		INSERT INTO dismissals (observation_id, action, timestamp)
+		VALUES (?,?,?)`,
+		observationID, action, time.Now().UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// ObservationKindCounts returns a map of kind → count.
+func (d *DB) ObservationKindCounts() (map[string]int, error) {
+	rows, err := d.sql.Query(`SELECT kind, COUNT(*) FROM observations GROUP BY kind`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]int)
+	for rows.Next() {
+		var kind string
+		var n int
+		if err := rows.Scan(&kind, &n); err != nil {
+			return nil, err
+		}
+		out[kind] = n
+	}
+	return out, rows.Err()
+}
+
+// RecentObservations returns the N most recent observations.
+func (d *DB) RecentObservations(limit int) ([]Observation, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, kind, category, confidence, text, file_path, line_number, timestamp
+		FROM observations ORDER BY timestamp DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Observation
+	for rows.Next() {
+		var o Observation
+		var fp, ts sql.NullString
+		var ln sql.NullInt64
+		var conf float64
+		if err := rows.Scan(&o.ID, &o.Kind, &o.Category, &conf, &o.Text, &fp, &ln, &ts); err != nil {
+			return nil, err
+		}
+		o.Confidence = conf
+		if fp.Valid {
+			o.FilePath = fp.String
+		}
+		if ln.Valid {
+			o.LineNumber = int(ln.Int64)
+		}
+		if ts.Valid {
+			o.Timestamp, _ = time.Parse(time.RFC3339, ts.String)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// AllBaselines returns all baselines sorted by key.
+func (d *DB) AllBaselines() ([][2]string, error) {
+	rows, err := d.sql.Query(`SELECT key, value FROM baselines ORDER BY key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][2]string
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out = append(out, [2]string{k, v})
+	}
+	return out, rows.Err()
+}
+
+// ClearObservations deletes all rows from the observations table.
+func (d *DB) ClearObservations() error {
+	_, err := d.sql.Exec(`DELETE FROM observations`)
+	return err
+}
+
+// FilteredErrors returns errors optionally filtered by source, newest first.
+// limit=0 means no limit.
+func (d *DB) FilteredErrors(filterType string, limit int) ([]ErrorRow, error) {
+	query := `SELECT id, source, message, file_path, line_number, timestamp FROM errors`
+	args := []any{}
+	if filterType != "" {
+		query += ` WHERE source = ?`
+		args = append(args, filterType)
+	}
+	query += ` ORDER BY id DESC`
+	if limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, limit)
+	}
+
+	rows, err := d.sql.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ErrorRow
+	for rows.Next() {
+		var r ErrorRow
+		var fp, ts sql.NullString
+		var ln sql.NullInt64
+		if err := rows.Scan(&r.ID, &r.Source, &r.Message, &fp, &ln, &ts); err != nil {
+			return nil, err
+		}
+		if fp.Valid {
+			r.FilePath = fp.String
+		}
+		if ln.Valid {
+			r.LineNumber = int(ln.Int64)
+		}
+		if ts.Valid {
+			r.Timestamp, _ = time.Parse(time.RFC3339, ts.String)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// HumanObservations returns the most recent observations with kind "human".
+func (d *DB) HumanObservations(limit int) ([]Observation, error) {
+	rows, err := d.sql.Query(`
+		SELECT id, kind, category, confidence, text, file_path, line_number, timestamp
+		FROM observations WHERE kind = 'human'
+		ORDER BY timestamp DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Observation
+	for rows.Next() {
+		var o Observation
+		var fp, ts sql.NullString
+		var ln sql.NullInt64
+		if err := rows.Scan(&o.ID, &o.Kind, &o.Category, &o.Confidence, &o.Text, &fp, &ln, &ts); err != nil {
+			return nil, err
+		}
+		if fp.Valid {
+			o.FilePath = fp.String
+		}
+		if ln.Valid {
+			o.LineNumber = int(ln.Int64)
+		}
+		if ts.Valid {
+			o.Timestamp, _ = time.Parse(time.RFC3339, ts.String)
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// ClearHumanObservations deletes all observations with kind "human".
+func (d *DB) ClearHumanObservations() error {
+	_, err := d.sql.Exec(`DELETE FROM observations WHERE kind = 'human'`)
+	return err
+}
+
+// ClearErrors deletes all rows from the errors table.
+func (d *DB) ClearErrors() error {
+	_, err := d.sql.Exec(`DELETE FROM errors`)
+	return err
+}
+
+// ClearAll deletes all transient data: observations, errors, dismissals, auto_fixes.
+func (d *DB) ClearAll() error {
+	for _, tbl := range []string{"observations", "errors", "dismissals", "auto_fixes"} {
+		if _, err := d.sql.Exec(`DELETE FROM ` + tbl); err != nil {
+			return fmt.Errorf("clear %s: %w", tbl, err)
+		}
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Tripwires
 // ---------------------------------------------------------------------------

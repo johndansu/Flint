@@ -864,6 +864,7 @@ flint doc                     # documentation
 flint audit                   # security / performance
 flint explain                 # understand unfamiliar code
 flint diff                    # explain a git diff
+flint repl                    # interactive codebase session (opens, asks, closes)
 flint                         # interactive picker
 
 # Signature features
@@ -1119,6 +1120,17 @@ Full rationale and all skeletons in `ARCHITECTURE.md` and `TECH_STACK.md`.
 - [ ] Agent send integration (Cursor, Antigravity, Windsurf, Copilot, Custom)
 - [ ] Status bar item (awareness level + session type)
 - [ ] Manual tool panel (role selector + tool list + streaming output)
+- [ ] REPL mode panel (sidebar switches from passive to REPL on open)
+  - [ ] Context header (project, file count, awareness level)
+  - [ ] Message list (user questions + Flint responses with file highlighting)
+  - [ ] Input area with › arrow and blinking cursor
+  - [ ] "clears on close" + "exit" footer always visible
+  - [ ] REPL mode suppresses passive observations while open
+  - [ ] Status bar switches to amber + "Flint repl" in REPL mode
+  - [ ] Quiet state "ask flint →" button to open REPL
+  - [ ] `Flint: Open REPL` command palette entry
+  - [ ] Session clears completely on exit/close
+  - [ ] Streams responses from Anthropic API with codebase context
 - [ ] Publish to VS Code Marketplace, Cursor registry, Windsurf registry
 
 ---
@@ -1129,7 +1141,7 @@ Full rationale and all skeletons in `ARCHITECTURE.md` and `TECH_STACK.md`.
 |---|---|
 | 1 | Shared core + schema + all 24 tool prompts + footguns.json + tools.json |
 | 2 | CLI — Spark level, core toolkit, `flint init`, `flint scan` (onboarding) |
-| 3 | CLI — `flint explain`, `flint diff`, `flint watch`, `flint check`, `flint update` |
+| 3 | CLI — `flint explain`, `flint diff`, `flint watch`, `flint check`, `flint update`, `flint repl` |
 | 4 | Daemon — file watcher, git monitor, CVE checker, 12-signal session classifier |
 | 5 | Daemon — technical engine, vibe coding mode, acceptance risk, explainability |
 | 6 | Daemon — win signals, taste engine, question generator, deliberate silence |
