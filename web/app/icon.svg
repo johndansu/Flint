@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Amber rounded square background -->
+  <rect width="32" height="32" rx="7" fill="#d97706"/>
+  <!-- F-mark (white), scaled and centered: original bbox 25.5×20, target ~22×17, centered in 32×32 -->
+  <g transform="translate(2.4 3.9) scale(0.863)">
+    <path fill="white"
+      d="M3 4 L20 4 L20 9 L8 9 L8 14 L19 14 L24.5 16.5 L19 19 L8 19 L8 24 L3 24 Z"/>
+    <circle fill="rgba(255,255,255,0.7)" cx="26.5" cy="16.5" r="2"/>
+  </g>
+</svg>
