@@ -59,6 +59,8 @@ jobs:
             dist/*
             dist/checksums.txt
           generate_release_notes: true
+          fail_on_unmatched_files: false
+          make_latest: true
 
   npm:
     name: Publish npm wrapper
