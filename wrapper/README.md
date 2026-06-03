@@ -1,4 +1,4 @@
-# flint-cli
+# useflint
 
 **The senior dev that never leaves.**
 
@@ -7,7 +7,7 @@ Flint is a passive intelligence layer for your codebase. It watches your work in
 ## Install
 
 ```bash
-npm install -g flint-cli
+npm install -g useflint
 ```
 
 Or download a binary directly from [Releases](https://github.com/johndansu/Flint/releases).

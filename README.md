@@ -9,7 +9,7 @@ Flint watches your code, git activity, and dependencies in the background. It sp
 ## Install
 
 ```bash
-npm install -g flint-cli
+npm install -g useflint
 ```
 
 Or download a binary directly from [Releases](https://github.com/johndansu/Flint/releases).
