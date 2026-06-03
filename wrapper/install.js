@@ -12,7 +12,7 @@ const crypto = require('crypto');
 
 const pkg     = require('./package.json');
 const VERSION = pkg.version;
-const REPO    = 'flintlang/flint';
+const REPO    = 'johndansu/Flint';
 const BIN_DIR = path.join(__dirname, 'bin');
 
 const PLATFORM_MAP = { darwin: 'darwin', linux: 'linux', win32: 'windows' };

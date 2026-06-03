@@ -17,8 +17,8 @@ import {
   GitHubIcon, CheckIcon, ArrowRightIcon,
 } from '@/components/Icons';
 
-const GITHUB  = 'https://github.com/flintlang/flint';
-const NPM_CMD = 'npm install -g @johndansu/flint';
+const GITHUB  = 'https://github.com/johndansu/Flint';
+const NPM_CMD = 'npm install -g flint-cli';
 
 // ── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -50,9 +50,8 @@ function FlintLogo({ size = 20, muted = false }: { size?: number; muted?: boolea
       <FlintMark size={size} />
       <span
         className={`mono font-bold tracking-tight leading-none select-none ${
-          muted ? 'text-neutral-500' : 'text-neutral-900 dark:text-neutral-100'
-        }`}
-        style={{ fontSize: Math.round(size * 0.82) }}
+          size <= 16 ? 'text-sm' : size <= 20 ? 'text-base' : 'text-lg'
+        } ${muted ? 'text-neutral-500' : 'text-neutral-900 dark:text-neutral-100'}`}
       >
         flint
       </span>
@@ -776,7 +775,7 @@ function Testimonials() {
 // ── Install ───────────────────────────────────────────────────────────────────
 
 const CLI_STEPS = [
-  { cmd: 'npm install -g @johndansu/flint', comment: '# or: brew install flintlang/tap/flint' },
+  { cmd: 'npm install -g flint-cli', comment: '# or: download from github.com/johndansu/Flint/releases' },
   { cmd: 'flint init',                    comment: '# add your Anthropic API key' },
   { cmd: 'flint start',                   comment: '# daemon starts in background' },
 ];

@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/flintlang/flint.git"
+    "url": "https://github.com/johndansu/Flint.git"
   },
   "engines": {
     "vscode": "^1.120.0"
