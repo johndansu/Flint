@@ -95,7 +95,7 @@ Flint pulls your staged diff automatically. If there's nothing staged, it asks w
 
 ## VS Code extension
 
-Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=flintlang.flint) or from a `.vsix` in [Releases](https://github.com/johndansu/Flint/releases).
+Install from [Open VSX](https://open-vsx.org/extension/johndansu/flint) or from a `.vsix` in [Releases](https://github.com/johndansu/Flint/releases).
 
 The extension connects to the local daemon over a Unix socket. When the daemon fires an observation, a card appears in the Flint sidebar — no popups, no interruptions. Dismiss when you're done.
 
