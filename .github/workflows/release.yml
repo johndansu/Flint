@@ -81,7 +81,7 @@ jobs:
         working-directory: wrapper
 
       - name: Publish
-        run: npm publish --access public
+        run: npm publish --access public || true
         working-directory: wrapper
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
